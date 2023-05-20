@@ -64,10 +64,10 @@ if __name__ == '__main__':
     max_feature_len = 0
 
     root_path = "/home/damaoooo/Project/plc"
-    source_path = os.path.join(root_path, "door")
+    source_path = os.path.join(root_path, "blink")
     total_file = []
     total_graph = []
-    destination = os.path.join(root_path, "dataset_door")
+    destination = os.path.join(root_path, "strip_dataset_blink")
     
     if os.path.exists(destination):
         shutil.rmtree(destination)

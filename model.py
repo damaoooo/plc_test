@@ -1,6 +1,7 @@
 from typing import Any, Optional
 from lightning.pytorch.utilities.types import STEP_OUTPUT
 import torch
+import random
 import numpy as np
 import torch.nn as nn
 import torch.optim as optim
@@ -195,30 +196,53 @@ class PLModelForAST(pl.LightningModule):
         same_feature, same_adj = same
         diff_feature, diff_adj = diff
 
-        latent_sample = self.my_model(sample_adj.squeeze(0), sample_feature.squeeze(0))
-        latent_same = self.my_model(same_adj.squeeze(0), same_feature.squeeze(0))
-        latent_diff = self.my_model(diff_adj.squeeze(0), diff_feature.squeeze(0))
+        seq = [1, 2, 3]
+        random.shuffle(seq)
+        for s in seq:
+            if s == 1:
+                latent_sample = self.my_model(sample_adj.squeeze(0), sample_feature.squeeze(0))
+            elif s == 2:
+                latent_same = self.my_model(same_adj.squeeze(0), same_feature.squeeze(0))
+            else:
+                latent_diff = self.my_model(diff_adj.squeeze(0), diff_feature.squeeze(0))
 
         loss1 = F.cosine_embedding_loss(latent_same, latent_sample, label[0] + 1)
         loss2 = F.cosine_embedding_loss(latent_sample, latent_diff, label[0] - 1)
 
-        return loss1 + loss2, F.cosine_similarity(latent_same, latent_sample).item() > F.cosine_similarity(latent_diff, latent_sample).item() 
+        return (loss1 + loss2, F.cosine_similarity(latent_same, latent_sample).item() > F.cosine_similarity(latent_diff, latent_sample).item(),
+                F.cosine_similarity(latent_same, latent_sample).item() - F.cosine_similarity(latent_diff, latent_sample).item())
     
+    def get_full_embedding(self, data):
+        with torch.no_grad():
+            res = []
+            name_list = []
+            for adj, fea, name in data:
+                adj = adj.to(device=self.device)
+                fea = fea.to(device=self.device)
+                embedding = self.my_model(adj, fea)
+                res.append(embedding.squeeze(0).detach().cpu().numpy())
+                name_list.append(name)
+        res = np.vstack(res)
+        return res, name_list
+
+
     def training_step(self, batch, batch_idx):
-        loss, ok = self.forward(batch)
+        loss, ok, _ = self.forward(batch)
         self.log("train_loss", loss.item(), on_step=True, on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
         self.training_step_outputs.append(int(ok))
         return loss
     
     def validation_step(self, batch, batch_idx):
-        loss, ok = self.forward(batch)
+        loss, ok, diff = self.forward(batch)
         self.log("val_loss", loss.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
-        self.validation_step_outputs.append(int(ok))
+        self.validation_step_outputs.append([int(ok), diff])
         return loss
     
     def on_validation_epoch_end(self):
-        acc = np.mean(self.validation_step_outputs)
+        acc = np.mean([x[0] for x in self.validation_step_outputs])
+        diff = np.mean([x[1] for x in self.validation_step_outputs])
         self.log("val_acc", acc.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
+        self.log("val_diff", diff.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
         self.validation_step_outputs.clear()
         
     def on_train_epoch_end(self):

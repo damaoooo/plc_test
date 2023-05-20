@@ -240,8 +240,8 @@ class Converter:
 
 
 if __name__ == '__main__':
-    pwd = 'blink/c_cpg'
-    save_dir = "./c_blink"
+    pwd = 'door/c_cpg'
+    save_dir = "./c_door"
     
     if os.path.exists(save_dir):
         shutil.rmtree(save_dir)
@@ -260,7 +260,8 @@ if __name__ == '__main__':
         G = nx.Graph(pgv.AGraph(fileName))
         
         function_name = re.sub("_part_\d+", "", G.name)
-        function_name = re.sub("_constprop_\d+", "",function_name)
+        function_name = re.sub("_constprop_\d+", "", function_name)
+        function_name = re.sub("_isra_\d+", "", function_name)
         function_name = cxxfilt.demangle(function_name)
         function_name = function_name[:function_name.find('(')]
 

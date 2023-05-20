@@ -30,12 +30,6 @@ class ASTGraphDGLDataset(DGLDataset):
 
     def __getitem__(self, idx):
         return super().__getitem__(idx)
-    
-class FetchAllDataset(Dataset):
-    def __init__(self, data: list):
-        super().__init__()
-        self.data = data
-        
 
 class ASTGraphDataset(Dataset):
     def __init__(self, data: list, max_adj: int, feature_len: int, exclude: list = []) -> None:
@@ -46,12 +40,21 @@ class ASTGraphDataset(Dataset):
         self.pair = self._make_pair()
         self.max_adj = max_adj
         self.feature_len = feature_len
+        
+    def _make_pair(self):
+        pair = {}
+        for data in self.data:
+            if data["name"] in pair:
+                pair[data['name']].append(data)
+            else:
+                pair[data['name']] = [data]
+        return pair
     
     def _get_full(self):
         res = []
         for k in self.pair.keys():
             sample = random.choice(self.pair[k])
-            adj, fea = self._get_full(sample)
+            fea, adj = self._to_tensor(sample)
             res.append([adj, fea, sample['name']])
         return res
 
@@ -126,7 +129,8 @@ class ASTGraphDataModule(pl.LightningDataModule):
         # TODO: Should + 1?
         feature_len = content["feature_len"] 
 
-        total_dataset = ASTGraphDataset(data, max_adj=min(adj_len, 1000), feature_len=feature_len, exclude=self.exclude)
+        # total_dataset = ASTGraphDataset(data, max_adj=min(adj_len, 1000), feature_len=feature_len, exclude=self.exclude)
+        total_dataset = ASTGraphDataset(data, max_adj=1000, feature_len=feature_len, exclude=self.exclude)
         train_data, val_data = random_split(total_dataset, [0.8, 0.2])
         # train_data, val_data = train_test_split(data, test_size=0.2)
 

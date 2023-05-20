@@ -5,7 +5,7 @@ from collections import Counter
 
 names = []
 good_fun = []
-path = "./c_blink"
+path = "./c_door"
 
 for file in os.listdir(path):
     if file.endswith(".json"):
