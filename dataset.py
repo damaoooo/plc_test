@@ -131,7 +131,7 @@ class ASTGraphDataModule(pl.LightningDataModule):
 
         # total_dataset = ASTGraphDataset(data, max_adj=min(adj_len, 1000), feature_len=feature_len, exclude=self.exclude)
         total_dataset = ASTGraphDataset(data, max_adj=1000, feature_len=feature_len, exclude=self.exclude)
-        train_data, val_data = random_split(total_dataset, [0.8, 0.2])
+        train_data, val_data = random_split(total_dataset, [0.7, 0.3])
         # train_data, val_data = train_test_split(data, test_size=0.2)
 
         # self.train_set = ASTGraphDataset(train_data, max_adj=min(adj_len, 1000), feature_len=feature_len)

@@ -23,3 +23,10 @@ big.cpg
 temp*
 test*
 *.pkl
+empty/*
+empty
+llvm*
+header_file_replace
+.idea
+__pycache__
+.uuid

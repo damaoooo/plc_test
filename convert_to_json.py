@@ -9,51 +9,9 @@ import pickle
 import html
 import cxxfilt
 import shutil
+import argparse
 
 np.set_printoptions(suppress=True)
-
-
-def deserialize(file: str):
-    with open(file, 'r') as f:
-        content = f.read()
-        f.close()
-    content = json.loads(content)
-    return content
-
-
-def convert_node(node: dict):
-    node_type: str = node['label']
-    property = node['properties']
-
-    if node_type == 'LOCAL':
-        attr1 = property['NAME'] + ':' + property['TYPE_FULL_NAME']
-        res = (node_type, attr1)
-    elif node_type == 'IDENTIFIER':
-        attr1 = property["NAME"]
-        res = (node_type, attr1)
-    elif node_type == 'LITERAL':
-        attr1 = property["CODE"]
-        res = (node_type, attr1)
-    elif node_type == 'CALL':
-        res = (property["NAME"], "")
-    elif node_type == 'METHOD_RETURN':
-        res = (node_type, property["TYPE_FULL_NAME"])
-    else:
-        res = (node_type, "")
-    return res
-
-
-def graph(content: dict):
-    g = nx.Graph(pgv.AGraph())
-    for node in content['nodes']:
-        id: int = node['id']
-        tpl = convert_node(node)
-        tpl = str(tpl)
-        g.add_node(id, **{'label':tpl})
-
-    for edge in content['edges']:
-        g.add_edge(edge['start'], edge['end'])
-    return g
 
 
 class Converter:
@@ -62,14 +20,14 @@ class Converter:
                       'CONTROL_STRUCTURE', 'LOCAL', 'METHOD_RETURN',
                       'METHOD', 'FIELD_IDENTIFIER', 'UNKNOWN',
                       'RETURN', 'PARAM', 'JUMP_TARGET', 'CALL']
-        self.OP = ['<operator>.assignment', '<operator>.indirectIndexAccess',
+        self.OP = ['<operator>.assignment', '<operator>.assignmentMinus',
                    '<operator>.assignmentPlus', '<operator>.multiplication', '<operator>.cast',
                    '<operator>.subtraction', '<operator>.fieldAccess', '<operator>.lessThan', '<operator>.logicalNot',
-                   '<operator>.postIncrement', '<operator>.addressOf', '<operator>.addition',
+                   '<operator>.postIncrement', '<operator>.addressOf', '<operator>.addition', '<operator>.logicalShiftRight',
                    '<operator>.equals', '<operator>.indirection', '<operator>.minus', "<operator>.shiftLeft",
                    '<operator>.notEquals', '<operator>.greaterEqualsThan', '<operator>.postDecrement',
                    '<operator>.logicalOr', '<operator>.division', '<operator>.logicalAnd', "<operator>.lessEqualsThan",
-                   '<operator>.delete', '<operator>.and', '<operator>.greaterThan', '<operator>.modulo',
+                   '<operator>.delete', '<operator>.and', '<operator>.greaterThan', '<operator>.modulo', "<operator>.select",
                    '<operator>.new', "<operator>.conditional", "<operator>.or", "<operator>.xor", "<operator>.arithmeticShiftRight"]
         self.FUNC = ['printLine', 'free', 'malloc', 'wcslen', 'strlen', 'CLOSE_SOCKET', 'strcpy',
                      'strtoul', 'wcscpy', 'printWLine', 'socket', 'recv', 'memset',
@@ -80,6 +38,7 @@ class Converter:
                      'globalReturnsFalse', 'staticReturnsFalse', 'strchr', 'printLongLongLine']
         self.TYPE = ['char', 'int', 'short', 'float', 'double', 'long', 'string',
                      'void', 'struct', 'union', 'signed', 'unsigned', '*', 'array', 'vector', 'map']
+        self.LLVMTYPE = ['i1', 'i2', 'i4', 'i8', 'i16', 'i32', 'i64', 'i128']
 
         self.signTable = {}
         self.length = 0
@@ -103,6 +62,18 @@ class Converter:
         if unknown == 0:
             res[len(res) - 2] = 1
         return res
+    
+    def getLLVMTypeValue(self, vType: str):
+        res = [0] * (len(self.TYPE) + 2)
+        if '*' in vType:
+            res[len(self.LLVMTYPE)] = 1
+        vType = vType.replace('*', '')
+        if vType in self.LLVMTYPE:
+            res[self.LLVMTYPE.index(vType)] = 1
+        else:
+            res[len(self.LLVMTYPE) + 1] = 1
+        return res
+        
 
     def convert(self, data: list):
 
@@ -120,11 +91,11 @@ class Converter:
             t: str = data[1]
             vName, vType = t.split(':')
             self.signTable[vName.strip()] = vType.strip()
-            typeVec = self.getTypeValue(vType)
+            typeVec = self.getLLVMTypeValue(vType)
 
         elif label == 'IDENTIFIER':
             vName: str = data[1]  # Variable Name
-            typeVec = self.getTypeValue(self.findSignTable(vName))
+            typeVec = self.getLLVMTypeValue(self.findSignTable(vName))
 
         elif label == 'LITERAL':
             uNum: str = data[1]  # unknown Number
@@ -240,8 +211,15 @@ class Converter:
 
 
 if __name__ == '__main__':
-    pwd = 'door/c_cpg'
-    save_dir = "./c_door"
+
+    args = argparse.ArgumentParser()
+    args.add_argument("--input", '-i', type=str, help="the input dot directory", default="/home/damaoooo/Project/common/x86/c_dot")
+    args.add_argument("--output", '-o', type=str, help="The outout directory", default="/home/damaoooo/Project/common/x86/c_cpg")
+    args = args.parse_args()
+
+
+    pwd = args.input
+    save_dir = args.output
     
     if os.path.exists(save_dir):
         shutil.rmtree(save_dir)
@@ -265,8 +243,8 @@ if __name__ == '__main__':
         function_name = cxxfilt.demangle(function_name)
         function_name = function_name[:function_name.find('(')]
 
-        if not ("_init_" in function_name or "_body" in function_name):
-            continue
+        # if not ("_init_" in function_name or "_body" in function_name):
+        #     continue
         
         max_nodes = max(len(G.nodes), max_nodes)
         G = G.to_undirected()
@@ -289,6 +267,10 @@ if __name__ == '__main__':
             tpl = s[1:-1].split(',')
             features.append(converter.convert(tpl))
         
+        # if len(features) < 10:
+        #     print("Too short")
+        #     continue
+
         out = {'adj': adj, "feature": features, "name": function_name}
         with open(os.path.join(save_dir, str(cnt - 1) + '.json'), 'w', encoding='utf-8') as f:
             f.write(json.dumps(out))

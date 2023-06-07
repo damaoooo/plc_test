@@ -13,20 +13,20 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 if __name__ == "__main__":
     torch.set_float32_matmul_precision('medium')
     
-    my_dataset = ASTGraphDataModule(batch_size=1, num_workers=16, data_path="./c_blink/!total.pkl", exclude=['RTC_body', 'GATE_CONTROLLER_body', "RAMP_body"])
+    my_dataset = ASTGraphDataModule(batch_size=1, num_workers=16, data_path="c_door/!total.pkl", exclude=["PID_init_", "RAMP_init_"])
     my_dataset.prepare_data()
 
     print(my_dataset.max_length, my_dataset.feature_length)
-    my_model = PLModelForAST(adj_length=1000, in_features=my_dataset.feature_length, lr=1e-5
-                             , alpha=0.2, dropout=0.3, hidden_features=64, n_heads=6, output_features=128)
+    my_model = PLModelForAST(adj_length=1000, in_features=my_dataset.feature_length, lr=4e-5
+                             , alpha=0.2, dropout=0.3, hidden_features=64, n_heads=6, output_features=128).load_from_checkpoint("lightning_logs/c_re_door/checkpoints/epoch=59-step=42554.ckpt")
 
-    checkpoint_callback = ModelCheckpoint(save_top_k=3, monitor="val_acc", mode="max")
+    checkpoint_callback = ModelCheckpoint(save_top_k=3, monitor="val_acc", mode="max",  save_on_train_epoch_end=True, save_last=True)
 
     trainer = Trainer(
         accelerator="gpu",
         precision="16-mixed",
-        max_epochs=100,
-        val_check_interval=0.3,
+        max_epochs=200,
+        # val_check_interval=0.3,
         callbacks=[checkpoint_callback]
     )
 
