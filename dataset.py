@@ -1,79 +1,45 @@
-
-from lightning.pytorch.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 import torch
 from torch.utils.data.dataset import Dataset
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data import random_split
-from sklearn.model_selection import train_test_split
 import random
 import lightning.pytorch as pl
 # import pytorch_lightning as pl
 from typing import List, Union
 import pickle
 import os
-import numpy as np
 import time
-import dgl
-from dgl.data import DGLDataset
-from line_profiler import LineProfiler
-
-os.environ["DGLBACKEND"] = "pytorch"
-
-class ASTGraphDGLDataset(DGLDataset):
-    def __init__(self, graph, name="ASTDataset", url=None, raw_dir=None, save_dir=None, hash_key=..., force_reload=False, verbose=False, transform=None):
-        super().__init__(name, url, raw_dir, save_dir, hash_key, force_reload, verbose, transform)
-        self.graph = graph
-        self.pair = {}
-
-    def process(self):
-        pass
-
-    def __getitem__(self, idx):
-        return super().__getitem__(idx)
+import numpy as np
 
 class ASTGraphDataset(Dataset):
-    def __init__(self, data: list, max_adj: int, feature_len: int, exclude: list = []) -> None:
+    def __init__(self, data: list, max_adj: int, feature_len: int) -> None:
         super().__init__()
         self.data = data
-        self.exclude = exclude
-        self.data = [x for x in self.data if (len(x['adj'][0]) < max_adj and x['name'] not in exclude) ]
-        self.pair = self._make_pair()
         self.max_adj = max_adj
         self.feature_len = feature_len
         
-    def _make_pair(self):
-        pair = {}
-        for data in self.data:
-            if data["name"] in pair:
-                pair[data['name']].append(data)
-            else:
-                pair[data['name']] = [data]
-        return pair
-    
-    def _get_full(self):
-        res = []
-        for k in self.pair.keys():
-            sample = random.choice(self.pair[k])
-            fea, adj = self._to_tensor(sample)
-            res.append([adj, fea, sample['name']])
-        return res
+        # The Memory is not big enough for it
+        # self.data = self._prepare()
 
     def __len__(self):
         return len(self.data)
     
+    def _prepare(self):
+        # C1 ~ C2, C1 !~ C3
+        result = []
+        for index in range(len(self.data)):
+            sample, same_sample, different_sample = self.data[index]
+
+            sample = self._to_tensor(sample)
+            same_sample = self._to_tensor(same_sample)
+            different_sample = self._to_tensor(different_sample)
+            
+            result.append([sample, same_sample, different_sample, torch.tensor([0])])
+        return result
+    
     # @profile
     def __getitem__(self, index):
-
-        sample = self.data[index]
-
-        different_sample = random.choice(list(self.pair.keys()))
-        while different_sample == sample['name']:
-            different_sample = random.choice(list(self.pair.keys()))
-        different_sample = random.choice(self.pair[different_sample])
-
-        same_sample = random.choice(self.pair[sample['name']])
-        # while (same_sample['opt'] == sample['opt']) and (same_sample['arch'] == sample['arch']):
-        #     same_sample = random.choice(self.pair[sample['name']])
+        sample, same_sample, different_sample = self.data[index]
 
         sample = self._to_tensor(sample)
         same_sample = self._to_tensor(same_sample)
@@ -83,8 +49,8 @@ class ASTGraphDataset(Dataset):
     
     # @profile
     def _to_tensor(self, data: dict):
-        adj = data['adj']
-        feature = data['feature']
+        adj = data[0]
+        feature = data[1]
         feature = torch.FloatTensor(feature)
         # feature = torch.eye(self.feature_len)[feature]
         adj_matrix = torch.zeros([1000, 1000])
@@ -106,7 +72,7 @@ class ASTGraphDataset(Dataset):
     
 
 class ASTGraphDataModule(pl.LightningDataModule):
-    def __init__(self, data_path: str = "./dataset/!total.pkl", batch_size: int = 32, num_workers: int = 16, exclude: list = []) -> None:
+    def __init__(self, data_path: str = "!pairs.pkl", batch_size: int = 32, num_workers: int = 16, exclude: list = []) -> None:
         super().__init__()
         self.data_path = data_path
         self.train_set: Union[Dataset, None] = None
@@ -130,8 +96,8 @@ class ASTGraphDataModule(pl.LightningDataModule):
         feature_len = content["feature_len"] 
 
         # total_dataset = ASTGraphDataset(data, max_adj=min(adj_len, 1000), feature_len=feature_len, exclude=self.exclude)
-        total_dataset = ASTGraphDataset(data, max_adj=1000, feature_len=feature_len, exclude=self.exclude)
-        train_data, val_data = random_split(total_dataset, [0.7, 0.3])
+        total_dataset = ASTGraphDataset(data, max_adj=1000, feature_len=feature_len)
+        train_data, val_data = random_split(total_dataset, [0.8, 0.2])
         # train_data, val_data = train_test_split(data, test_size=0.2)
 
         # self.train_set = ASTGraphDataset(train_data, max_adj=min(adj_len, 1000), feature_len=feature_len)
@@ -141,6 +107,10 @@ class ASTGraphDataModule(pl.LightningDataModule):
 
         self.max_length = min(adj_len, 1000)
         self.feature_length = feature_len
+        
+        del content
+        del data
+        del total_dataset
 
     def train_dataloader(self):
         return DataLoader(dataset=self.train_set, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=True, pin_memory=True)
@@ -150,11 +120,16 @@ class ASTGraphDataModule(pl.LightningDataModule):
     
 
 if __name__ == "__main__":
-    p = ASTGraphDataModule(data_path="./c_data_json/!total.pkl", num_workers=1)
+    a0 = time.time()
+    p = ASTGraphDataModule(data_path="!pairs_small.pkl", num_workers=16)
     p.prepare_data()
     train = p.train_dataloader()
     idx = 0
+    a1 = time.time()
+    print("Overhead: ", a1 - a0)
+    a2 = a1
     for i in iter(train):
         idx += 1
         print(idx)
-
+        print("Single_time:", time.time() - a2)
+        a2 = time.time()
