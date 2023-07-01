@@ -130,6 +130,7 @@ class InferenceModel:
             if file.endswith('.json'):
                 try:
                     name, embedding = self.get_function_embeding(os.path.join(file_dir, file))
+                    function_set[name] = embedding
                 except IndexError:
                     with open(os.path.join(file_dir, file), 'r') as f:
                         content = f.read()
@@ -137,7 +138,7 @@ class InferenceModel:
                         f.close()
                     name = content['name']
                     print("Function {} is too long with length {}".format(name, len(content['feature'])))
-                function_set[name] = embedding
+                
         return function_set
 
     @torch.no_grad()
@@ -217,8 +218,10 @@ class InferenceModel:
         for c in result:
             if self.judge(c, [x[1] for x in result[c]]):
                 correct += 1
-            else:
-                print(c, result[c])
+                # print(c, result[c], "Right")
+            # else:
+                # print(c, result[c], "Wrong")
+
         return correct, len(result.keys())
     
     def judge(self, func: str, candidate: list):
@@ -235,6 +238,33 @@ class InferenceModel:
 
 if __name__ == '__main__':
     model_config = ModelConfig()
+    model_config.model_path = "lightning_logs/version_2/checkpoints/last.ckpt"
+    model_config.dataset_path = ""
+    model_config.feature_length = 141
+    model_config.cuda = True
+    model_config.topK = 10
     model = InferenceModel(model_config)
-    print(model.get_test_pairs("door/Res0_g++-O0/c_cpg", "door/Res0_arm-linux-gnueabi-g++-O0/c_cpg"))
-    # print(model.bad_function_list("door"))
+    
+    recall = []
+    
+    for k in range(1, 11):
+    
+        correct_total = 0
+        total_total = 0
+        
+        model.config.topK = k
+
+        
+        for arch1 in ['g++', 'arm-linux-gnueabi-g++', 'powerpc-linux-gnu-g++', 'mips-linux-gnu-g++']:
+            for opt1 in ["O0", "O1", "O2", "O3"]:
+                for arch2 in ['g++', 'arm-linux-gnueabi-g++', 'powerpc-linux-gnu-g++', 'mips-linux-gnu-g++']:
+                    for opt2 in ["O0", "O1", "O2", "O3"]:
+                        file_name1 = "Res0_{}-{}".format(arch1, opt1)
+                        file_name2 = "Res0_{}-{}".format(arch2, opt2)
+                        correct, total = model.get_test_pairs(f"dataset/door/{file_name1}/c_cpg", f"dataset/door/{file_name2}/c_cpg")  
+                        correct_total += correct
+                        total_total += total
+        
+        recall.append(correct_total / total_total)
+        
+    print(recall)

@@ -5,7 +5,7 @@ from collections import Counter
 
 names = []
 good_fun = []
-path = "/home/damaoooo/Project/common"
+path = "dataset/door"
 for root in os.listdir(path):
     if not os.path.isdir(os.path.join(path, root)):
         continue
