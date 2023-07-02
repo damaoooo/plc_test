@@ -7,22 +7,29 @@ import lightning.pytorch as pl
 # import pytorch_lightning as pl
 from typing import List, Union
 import pickle
+import json
 import os
+import gc
 import time
 import numpy as np
 
 class ASTGraphDataset(Dataset):
-    def __init__(self, data: list, max_adj: int, feature_len: int) -> None:
+    def __init__(self, data_path: str, offset: int, length: int, max_adj: int, feature_len: int) -> None:
         super().__init__()
-        self.data = data
+        self.length = length
+        self.offset = offset
+        self.data_path = data_path
+        self.data = []
         self.max_adj = max_adj
         self.feature_len = feature_len
+        
+        self.last_file_no = -1
         
         # The Memory is not big enough for it
         # self.data = self._prepare()
 
     def __len__(self):
-        return len(self.data)
+        return self.length
     
     def _prepare(self):
         # C1 ~ C2, C1 !~ C3
@@ -37,8 +44,34 @@ class ASTGraphDataset(Dataset):
             result.append([sample, same_sample, different_sample, torch.tensor([0])])
         return result
     
+    def _should_switch(self, index):
+        if self.last_file_no * self.offset <= index < (self.last_file_no + 1) * self.offset:
+            return False
+        else:
+            return True
+
+    def _switch(self, index):
+        file_no = index // self.offset
+        with open(self.data_path[file_no], 'rb') as f:
+            data = pickle.load(f)
+            f.close()
+        return data, file_no
+
+    def _handle_switch(self, index):
+        if self._should_switch(index):
+            data, file_no = self._switch(index)
+            self.data = data
+            gc.collect()
+            del data
+            gc.collect()
+            self.last_file_no = file_no
+        
+        return index % self.offset
+    
     # @profile
     def __getitem__(self, index):
+        # impliment the sliced file read
+        index = self._handle_switch(index)
         sample, same_sample, different_sample = self.data[index]
 
         sample = self._to_tensor(sample)
@@ -85,43 +118,49 @@ class ASTGraphDataModule(pl.LightningDataModule):
 
         self.max_length = -1
         self.feature_length = -1
+        
+    def _load_dataset_info(self, data_path):
+        with open(os.path.join(data_path, "metainfo.json"), 'r') as f:
+            content = json.loads(f.read())
+            f.close()
+        adj_len = content['adj_len']
+        feature_len = content['feature_len']
+        total_length = content['length']
+        offset = content['offset']
+        file_list = content['file_list']
+        for i in range(len(file_list)):
+            file_list[i] = os.path.join(os.path.abspath(data_path), file_list[i])
+        sorted(file_list)
+        return adj_len, feature_len, total_length, offset, file_list
 
     def prepare_data(self):
-        with open(self.data_path, "rb") as f:
-            content = pickle.load(f)
-            f.close()
-        data = content['data']
-        adj_len = content['adj_len']
-        # TODO: Should + 1?
-        feature_len = content["feature_len"] 
+        # TODO: Add slicing dataset
+        
+        adj_len, feature_len, train_total_length, offset, train_file_list = self._load_dataset_info(os.path.join(self.data_path, "train_set"))
+        
+        # Assume train_set and test_set are the same
+        _, _, test_total_length, _, test_file_list = self._load_dataset_info(os.path.join(self.data_path, "test_set"))
 
         # total_dataset = ASTGraphDataset(data, max_adj=min(adj_len, 1000), feature_len=feature_len, exclude=self.exclude)
-        total_dataset = ASTGraphDataset(data, max_adj=1000, feature_len=feature_len)
-        train_data, val_data = random_split(total_dataset, [0.8, 0.2])
-        # train_data, val_data = train_test_split(data, test_size=0.2)
 
-        # self.train_set = ASTGraphDataset(train_data, max_adj=min(adj_len, 1000), feature_len=feature_len)
-        # self.val_set = ASTGraphDataset(val_data, max_adj=min(adj_len, 1000), feature_len=feature_len)
-        self.train_set = train_data
-        self.val_set = val_data
 
-        self.max_length = min(adj_len, 1000)
+        self.train_set = ASTGraphDataset(data_path=train_file_list, offset=offset, length=train_total_length, max_adj=adj_len, feature_len=feature_len)
+        self.val_set = ASTGraphDataset(data_path=test_file_list, offset=offset, length=test_total_length, max_adj=adj_len, feature_len=feature_len)
+
+        self.max_length = adj_len
         self.feature_length = feature_len
         
-        del content
-        del data
-        del total_dataset
 
     def train_dataloader(self):
-        return DataLoader(dataset=self.train_set, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=True, pin_memory=True)
+        return DataLoader(dataset=self.train_set, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=False)
     
     def val_dataloader(self):
-        return DataLoader(dataset=self.val_set, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True)
+        return DataLoader(dataset=self.val_set, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=False)
     
 
 if __name__ == "__main__":
     a0 = time.time()
-    p = ASTGraphDataModule(data_path="!pairs_small.pkl", num_workers=16)
+    p = ASTGraphDataModule(data_path="coreutil_dataset", num_workers=4)
     p.prepare_data()
     train = p.train_dataloader()
     idx = 0

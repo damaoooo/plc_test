@@ -31,3 +31,4 @@ header_file_replace
 __pycache__
 .uuid
 *.back
+*dataset
