@@ -134,8 +134,6 @@ class ASTGraphDataModule(pl.LightningDataModule):
         return adj_len, feature_len, total_length, offset, file_list
 
     def prepare_data(self):
-        # TODO: Add slicing dataset
-        
         adj_len, feature_len, train_total_length, offset, train_file_list = self._load_dataset_info(os.path.join(self.data_path, "train_set"))
         
         # Assume train_set and test_set are the same

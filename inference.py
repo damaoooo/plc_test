@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from model import PLModelForAST
 from dataset import ASTGraphDataModule
 from collections import Counter
-from typing import Dict
+from typing import Dict, List
 
 
 def get_cos_similar_multi(v1, v2):
@@ -54,6 +54,8 @@ class ModelConfig:
 class InferenceModel:
     def __init__(self, config: ModelConfig):
         self.config = config
+        torch.set_float32_matmul_precision('high')
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:100"
         if self.config.dataset_path:
             total_path = os.path.join(self.config.dataset_path, "!total.pkl")
             self.dataset = ASTGraphDataModule(total_path, exclude=self.config.exclude_list, batch_size=1)
@@ -122,7 +124,7 @@ class InferenceModel:
         print("Exclusive: ", set(names) - set(good_fun))
         print("Count:", Counter(good_fun))
 
-    def get_function_list_embedding(self, file_dir):
+    def get_function_file_embedding(self, file_dir):
 
         function_set: Dict[str, FunctionEmbedding] = {}
 
@@ -140,11 +142,33 @@ class InferenceModel:
                     print("Function {} is too long with length {}".format(name, len(content['feature'])))
                 
         return function_set
-
+    
+    def get_function_set_embedding(self, function_list: List[dict]):
+        function_set: Dict[str, FunctionEmbedding] = {}
+        for figure in function_list:
+            name, embedding = self.get_single_function_embedding(figure)
+            function_set[name] = embedding
+        return function_set
+    
+    def get_function_pool_embedding(self, function_list: Dict[str, List[dict]]):
+        function_result_list: List[FunctionEmbedding] = []
+        name_list = []
+        for function_name in function_list:
+            for function_body in function_list[function_name]:
+                name, embedding = self.get_single_function_embedding(function_body)
+                function_result_list.append(embedding)
+                name_list.append(name)
+        return name_list, function_result_list
+        
+    def get_single_function_embedding(self, dicts: dict):
+        feature, adj, name = self.to_tensor(dicts)
+        embedding = self.model.my_model(adj, feature).cpu().numpy()
+        return name, FunctionEmbedding(name=name, adj=adj, feature=feature, embedding=embedding)
+        
     @torch.no_grad()
     def get_top_k(self, file_dir, function_filename):
 
-        function_set = self.get_function_list_embedding(file_dir=file_dir)
+        function_set = self.get_function_file_embedding(file_dir=file_dir)
 
         name, embedding = self.get_function_embeding(function_filename)
 
@@ -193,10 +217,39 @@ class InferenceModel:
         return feature, adj_matrix, name
     
     @torch.no_grad()
-    def get_test_pairs(self, function_list1: str, function_list2: str):
+    def get_test_pairs_pool(self, function_list1: List, function_pool: Dict):
+        pool_name_list, function_pool = self.get_function_pool_embedding(function_pool)
+        function_set = self.get_function_set_embedding(function_list1)
+        
+        common_function = list(set(pool_name_list).intersection(set(function_set.keys())))
+        
+        mat2 = []
+        for c in function_pool:
+            mat2.append(c.embedding)
+        mat2 = np.vstack(mat2)
+        
+        result: Dict[str, list] = {}
+        
+        for c in common_function:
+            query = function_set[c].embedding
+            mm = get_cos_similar_multi(query, mat2)
+            rank_list = sorted(zip(mm.reshape(-1), pool_name_list), key=lambda x: x[0], reverse=True)[:self.config.topK]
+            result[c] = rank_list.copy()
+        
+        correct = 0
+        for c in result:
+            if self.judge(c, [x[1] for x in result[c]]):
+                correct += 1
+                
+        return correct, len(result.keys())
+            
+        
+    
+    @torch.no_grad()
+    def get_test_pairs(self, function_list1: List, function_list2: List):
 
-        function_set1 = self.get_function_list_embedding(file_dir=function_list1)
-        function_set2 = self.get_function_list_embedding(file_dir=function_list2)
+        function_set1 = self.get_function_set_embedding(function_list=function_list1)
+        function_set2 = self.get_function_set_embedding(function_list=function_list2)
 
         common_function = list(set(function_set1.keys()).intersection(set(function_set2.keys())))
         exlusive = ['TOF_body', 'PID_body', 'CTUD_ULINT_body', 'RAMP_body', 'CTUD_LINT_body', 'TON_body', 'TP_body', "RAMP_init__", "PID_init__"]
@@ -224,6 +277,15 @@ class InferenceModel:
 
         return correct, len(result.keys())
     
+    def filter_env(self, dataset: Dict, arch: str, opt: str):
+        # dataset = Binary_Name - {"function1" : [], "function2": []}
+        result = []
+        for function_name in dataset:
+            for function_content in dataset[function_name]:
+                if function_content['archtecture'] == arch and function_content['opt_level'] == opt:
+                    result.append(function_content)
+        return result
+    
     def judge(self, func: str, candidate: list):
         if func in candidate:
             return True
@@ -232,21 +294,31 @@ class InferenceModel:
                 for x in candidate:
                     if "CTU" in x or "CTD" in x:
                         return True
-
         return False
         
+    def ROC(self, function_list1, function_list2):
+        function_set1 = self.get_function_set_embedding(function_list=function_list1)
+        function_set2 = self.get_function_set_embedding(function_list=function_list2)
+        # TODO: add ROC and AUC
 
 if __name__ == '__main__':
     model_config = ModelConfig()
-    model_config.model_path = "lightning_logs/version_2/checkpoints/last.ckpt"
+    
+    with open("coreutil_dataset/test_binary/core.pkl", 'rb') as f:
+        dataset = pickle.load(f)
+        f.close()
+    
+    model_config.model_path = "epoch=9-step=590920.ckpt"
     model_config.dataset_path = ""
-    model_config.feature_length = 141
+    model_config.feature_length = dataset['feature_len']
     model_config.cuda = True
     model_config.topK = 10
     model = InferenceModel(model_config)
     
     recall = []
     
+
+        
     for k in range(1, 11):
     
         correct_total = 0
@@ -254,17 +326,20 @@ if __name__ == '__main__':
         
         model.config.topK = k
 
-        
-        for arch1 in ['g++', 'arm-linux-gnueabi-g++', 'powerpc-linux-gnu-g++', 'mips-linux-gnu-g++']:
-            for opt1 in ["O0", "O1", "O2", "O3"]:
-                for arch2 in ['g++', 'arm-linux-gnueabi-g++', 'powerpc-linux-gnu-g++', 'mips-linux-gnu-g++']:
-                    for opt2 in ["O0", "O1", "O2", "O3"]:
-                        file_name1 = "Res0_{}-{}".format(arch1, opt1)
-                        file_name2 = "Res0_{}-{}".format(arch2, opt2)
-                        correct, total = model.get_test_pairs(f"dataset/door/{file_name1}/c_cpg", f"dataset/door/{file_name2}/c_cpg")  
+        for binary_name in dataset['data']:
+            for arch1 in ['gcc', 'arm-linux-gnueabi', 'powerpc-linux-gnu', 'mips-linux-gnu']:
+                for opt1 in ["-O0", "-O1", "-O2", "-O3"]:
+                    try:
+                        print(f"Doing {arch1}{opt1} vs {binary_name}, current {correct_total}/{total_total} = {correct_total/(total_total+1)}")
+                        function_list1 = model.filter_env(dataset['data'][binary_name], arch1, opt1)
+                        function_pool1 = dataset['data'][binary_name]
+                        with torch.no_grad():
+                            correct, total = model.get_test_pairs_pool(function_list1=function_list1, function_pool=function_pool1) 
                         correct_total += correct
                         total_total += total
-        
+                    except ValueError:
+                        print("No that Architecture and Opt_level")
+                            
         recall.append(correct_total / total_total)
-        
+        print(f"recall@{k}: {correct_total / total_total}")
     print(recall)

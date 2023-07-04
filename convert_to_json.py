@@ -279,6 +279,28 @@ if __name__ == '__main__':
         cnt += 1
 
     print(f'max_nodes-{max_nodes}, feature_length-{converter.length}')
-    with open(os.path.join(save_dir, "!total.pkl"), 'wb') as f:
-        pickle.dump({"data": all_data, "adj_len": max_nodes, "feature_len": converter.length}, f)
-        f.close()
+    
+    # with open(os.path.join(save_dir, "!total.pkl"), 'wb') as f:
+    #     pickle.dump({"data": all_data, "adj_len": max_nodes, "feature_len": converter.length}, f)
+    #     f.close()
+
+    # with open("./!total.pkl", 'rb') as f:
+    #     total_data = pickle.load(f)
+    #     f.close()
+        
+    for binary in all_data['data']:
+        bad_func_list = []
+        for func in all_data['data'][binary]:
+            if len(all_data['data'][binary][func]) < 2:
+                bad_func_list.append(func)
+        
+        for f in bad_func_list:
+            del all_data['data'][binary][f]
+            
+    total_function_num = 0
+
+    for test_b in all_data['data']:
+        for func in all_data['data'][test_b]:
+            total_function_num += len(all_data['data'][test_b][func])
+            
+    print("Total Functions:", total_function_num)
