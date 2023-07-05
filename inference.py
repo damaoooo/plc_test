@@ -162,7 +162,7 @@ class InferenceModel:
         
     def get_single_function_embedding(self, dicts: dict):
         feature, adj, name = self.to_tensor(dicts)
-        embedding = self.model.my_model(adj, feature).cpu().numpy()
+        embedding = self.model.my_model(adj, feature).detach().cpu().numpy()
         return name, FunctionEmbedding(name=name, adj=adj, feature=feature, embedding=embedding)
         
     @torch.no_grad()
@@ -189,7 +189,7 @@ class InferenceModel:
             content = json.loads(content)
             f.close()
         feature, adj, name = self.to_tensor(content)
-        embedding = self.model.my_model(adj, feature).cpu().numpy()
+        embedding = self.model.my_model(adj, feature).detach().cpu().numpy()
         return name, FunctionEmbedding(name=name, adj=adj, feature=feature, embedding=embedding)
 
     def to_tensor(self, json_dict: dict):
@@ -308,7 +308,7 @@ if __name__ == '__main__':
         dataset = pickle.load(f)
         f.close()
     
-    model_config.model_path = "epoch=9-step=590920.ckpt"
+    model_config.model_path = "lightning_logs/version_26405035/checkpoints/last.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = dataset['feature_len']
     model_config.cuda = True
@@ -343,3 +343,7 @@ if __name__ == '__main__':
         recall.append(correct_total / total_total)
         print(f"recall@{k}: {correct_total / total_total}")
     print(recall)
+    
+    with open("./result_recall_K", 'w') as f:
+        f.write(json.dumps(recall))
+        f.close()

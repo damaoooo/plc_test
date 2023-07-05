@@ -33,3 +33,8 @@ __pycache__
 *.back
 *dataset
 *.ckpt
+*.err
+*.out
+result*
+*checkpoints
+*.ipynb
