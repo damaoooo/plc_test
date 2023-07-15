@@ -10,6 +10,7 @@ import html
 import cxxfilt
 import shutil
 import argparse
+import random
 
 np.set_printoptions(suppress=True)
 
@@ -42,10 +43,22 @@ class Converter:
 
         self.signTable = {}
         self.length = 0
+        
+    def load_op_list(self, path):
+        with open(path, 'rb') as f:
+            result = pickle.load(f)
+            f.close()
+        assert isinstance(result, list)
+        self.OP = result
+        
+    def save_op_list(self, path):
+        with open(path, 'wb') as f:
+            pickle.dump(self.OP, f)
+            f.close()
 
     def cleanSignTable(self):
         self.signTable = {}
-
+        
     def findSignTable(self, variable: str):
         if variable in self.signTable:
             return self.signTable[variable]
@@ -91,11 +104,11 @@ class Converter:
             t: str = data[1]
             vName, vType = t.split(':')
             self.signTable[vName.strip()] = vType.strip()
-            typeVec = self.getLLVMTypeValue(vType)
+            typeVec = self.getTypeValue(vType)
 
         elif label == 'IDENTIFIER':
             vName: str = data[1]  # Variable Name
-            typeVec = self.getLLVMTypeValue(self.findSignTable(vName))
+            typeVec = self.getTypeValue(self.findSignTable(vName))
 
         elif label == 'LITERAL':
             uNum: str = data[1]  # unknown Number
@@ -138,7 +151,10 @@ class Converter:
 
         elif '<operator>' in label:
             labelVec[self.LABEL.index('CALL')] = 1
-            opVec[self.OP.index(label)] = 1
+            try:
+                opVec[self.OP.index(label)] = 1
+            except ValueError:
+                raise ValueError(label)
 
         elif label in self.FUNC:
             labelVec[self.LABEL.index('CALL')] = 1
@@ -209,85 +225,155 @@ class Converter:
         floatingPointString = '0b' + sign + exponet + mantissa
         return hex(int(floatingPointString, 2))
 
-
-if __name__ == '__main__':
-
-    args = argparse.ArgumentParser()
-    args.add_argument("--input", '-i', type=str, help="the input dot directory", default="/home/damaoooo/Project/common/x86/c_dot")
-    args.add_argument("--output", '-o', type=str, help="The outout directory", default="/home/damaoooo/Project/common/x86/c_cpg")
-    args = args.parse_args()
-
-
-    pwd = args.input
-    save_dir = args.output
+def convert_file(file_name: str, converter: Converter):
+    G = nx.Graph(pgv.AGraph(file_name))
     
+    function_name = re.sub("_part_\d+", "", G.name)
+    function_name = re.sub("_constprop_\d+", "", function_name)
+    function_name = re.sub("_isra_\d+", "", function_name)
+    function_name = cxxfilt.demangle(function_name)
+    function_name = function_name[:function_name.find('(')]
+
+    # if not ("_init_" in function_name or "_body" in function_name):
+    #     continue
+    
+    G = G.to_undirected()
+    edges = G.edges
+    start = [int(x[0]) for x in edges]
+    end = [int(x[1]) for x in edges]
+    base = min(start + end)
+    start = [x - base for x in start]
+    end = [x - base for x in end]
+    adj = [start, end]
+    # adj = np.array(nx.adjacency_matrix(G).todense()).tolist()
+    
+    if len(adj[0]) < 10 or len(adj[0]) > 1500:
+        return {}
+    
+    features = []
+    for nodes in G.nodes:
+        s: str = G.nodes[nodes]['label']
+        s = html.unescape(s)
+        tpl = s[1:-1].split(',')
+        features.append(converter.convert(tpl))
+
+    out = {'adj': adj, "feature": features, "name": function_name}
+    return out
+
+def print_sample(x):
+    print(x['name'], x['archtecture'], x['binary'], x['opt_level'])
+    
+def purify(x):
+    return x['adj'], x['feature']
+
+def make_paris(data):
+    new_pairs = {"data": [], "adj_len": data['adj_len'], "feature_len": data['feature_len']}
+    
+    for binary in data['data']:
+        for func in data['data'][binary]:
+            for x in data['data'][binary][func]:
+                # print(x['name'], x['archtecture'], x['binary'], x['opt_level'])
+                same = random.choice([xx for xx in data['data'][binary][func] if xx != x])
+                different_binary_name = random.choice(list(data['data'].keys()))
+                different_function_name = random.choice(list(data['data'][different_binary_name].keys()))
+                different = random.choice(data['data'][different_binary_name][different_function_name])
+                new_pairs['data'].append([purify(x), purify(same), purify(different)])
+    return new_pairs
+
+def slice_store(pairs, offset, path):
+    
+    file_list = []
+    
+    cnt = 0
+    
+    for k in [pairs['data'][x*offset:(x+1)*offset] for x in range(len(pairs['data'])//offset + 1)]:
+        with open(os.path.join(path, f"{cnt}.pkl"), 'wb') as f:
+            pickle.dump(k, f)
+            f.close()
+        file_list.append(f"{cnt}.pkl")
+        cnt += 1
+        
+    meta_info = {"adj_len": pairs['adj_len'], "feature_len": pairs['feature_len'], "length": len(pairs['data']), "offset": offset, "file_list": file_list}
+    
+    with open(os.path.join(path, "metainfo.json"), 'w') as f:
+        f.write(json.dumps(meta_info))
+        f.close()
+        
+def split_dataset(dataset: dict, ratio = 0.1):
+    test_num = int(ratio * len(dataset['data']))
+    test_binaries = random.sample(list(dataset['data'].keys()), test_num)
+
+    count = 0
+    for test_b in dataset['data']:
+        for func in dataset['data'][test_b]:
+            total_function_num += len(dataset['data'][test_b][func])
+            if test_b in test_binaries:
+                count += len(dataset['data'][test_b][func])
+                
+    print("Selected Binary File:", test_binaries)
+    print("Test Function", count, "Total Function", total_function_num, "Ratio:", count / total_function_num)
+    test_data = {'data': {}, "adj_len": dataset['adj_len'], "feature_len": dataset['feature_len']}
+    
+    for test_b in test_binaries:
+        test_data['data'][test_b] = dataset['data'][test_b]
+        del dataset['data'][test_b]
+        
+    return dataset, test_data
+    
+def run_it(pwd, save_dir, converter: Converter):
     if os.path.exists(save_dir):
         shutil.rmtree(save_dir)
     
     os.mkdir(save_dir)
 
     cnt = 1
-    converter = Converter()
 
     max_nodes = 0
 
-    all_data = []
+    all_data = {'data':{}, 'adj_len':0, 'feature_len': 0}
 
-    for file in os.listdir(pwd):
-        fileName = os.path.join(pwd, file)
-        G = nx.Graph(pgv.AGraph(fileName))
-        
-        function_name = re.sub("_part_\d+", "", G.name)
-        function_name = re.sub("_constprop_\d+", "", function_name)
-        function_name = re.sub("_isra_\d+", "", function_name)
-        function_name = cxxfilt.demangle(function_name)
-        function_name = function_name[:function_name.find('(')]
-
-        # if not ("_init_" in function_name or "_body" in function_name):
-        #     continue
-        
-        max_nodes = max(len(G.nodes), max_nodes)
-        G = G.to_undirected()
-        edges = G.edges
-        start = [int(x[0]) for x in edges]
-        end = [int(x[1]) for x in edges]
-        base = min(start + end)
-        start = [x - base for x in start]
-        end = [x - base for x in end]
-        adj = [start, end]
-        # adj = np.array(nx.adjacency_matrix(G).todense()).tolist()
-        
-        if len(adj[0]) < 10:
-            continue
-        
-        features = []
-        for nodes in G.nodes:
-            s: str = G.nodes[nodes]['label']
-            s = html.unescape(s)
-            tpl = s[1:-1].split(',')
-            features.append(converter.convert(tpl))
-        
-        # if len(features) < 10:
-        #     print("Too short")
-        #     continue
-
-        out = {'adj': adj, "feature": features, "name": function_name}
-        with open(os.path.join(save_dir, str(cnt - 1) + '.json'), 'w', encoding='utf-8') as f:
-            f.write(json.dumps(out))
-            f.close()
-        all_data.append(out)
-        cnt += 1
+    for arch in os.listdir(pwd):
+        lifted_dir = os.path.join(pwd, arch, 'lifted')
+        for cpg_dir in os.listdir(lifted_dir):
+            if not (os.path.isdir(os.path.join(lifted_dir, cpg_dir)) and cpg_dir.startswith("c_dot_")):
+                continue
+            binary_name = cpg_dir[6:]
+            
+            if binary_name not in all_data['data']:
+                all_data['data'][binary_name] = {}
+                
+            for dot_file in os.listdir(os.path.join(lifted_dir, cpg_dir)):
+                file_path = os.path.join(lifted_dir, cpg_dir, dot_file)
+                try:
+                    out = convert_file(file_path, converter)
+                except cxxfilt.InvalidName as e:
+                    print("Function:", e, 'Invalid')
+                    out = {}
+                if not out :
+                    continue
+                
+                with open(os.path.join(save_dir, str(cnt - 1) + '.json'), 'w', encoding='utf-8') as f:
+                    f.write(json.dumps(out))
+                    f.close()
+                    cnt += 1
+                    
+                function_name = out['name']
+                max_nodes = max(max_nodes, len(out['feature']))
+                
+                if function_name not in all_data['data'][binary_name]:
+                    all_data['data'][binary_name][function_name] = [out]
+                else:
+                    all_data['data'][binary_name][function_name].append(out)
+                
 
     print(f'max_nodes-{max_nodes}, feature_length-{converter.length}')
+    all_data['adj_len'] = max_nodes
+    all_data['feature_len'] = converter.length
     
-    # with open(os.path.join(save_dir, "!total.pkl"), 'wb') as f:
-    #     pickle.dump({"data": all_data, "adj_len": max_nodes, "feature_len": converter.length}, f)
-    #     f.close()
-
-    # with open("./!total.pkl", 'rb') as f:
-    #     total_data = pickle.load(f)
-    #     f.close()
-        
+    ############################################################
+    #           filter the useful function
+    ############################################################
+    
     for binary in all_data['data']:
         bad_func_list = []
         for func in all_data['data'][binary]:
@@ -304,3 +390,53 @@ if __name__ == '__main__':
             total_function_num += len(all_data['data'][test_b][func])
             
     print("Total Functions:", total_function_num)
+
+    ############################################################
+    #                   split the file
+    ############################################################
+    print("Making total dataset")
+    total_pairs = make_paris(all_data)
+    slice_store(total_pairs, 10000, path="/ibex/tmp/zhoul0e/dataset/all")
+    
+    ############################################################
+    #                   split the dataset
+    ############################################################
+    print("Making split dataset")
+    random.seed(114514)
+    train_set, test_set = split_dataset(all_data)
+    train_pair = make_paris(train_set)
+    test_pair = make_paris(test_set)
+    slice_store(train_pair, 10000, path="/ibex/tmp/zhoul0e/dataset/train")
+    slice_store(test_pair, 10000, path="/ibex/tmp/zhoul0e/dataset/test")
+    
+def iterative_run(input_dir: str, save_dir: str, op_list: str):
+
+    should_finish = False
+    while 1:    
+        try:
+            converter = Converter()
+            converter.load_op_list(op_list)
+            run_it(input_dir, save_dir, converter)
+            should_finish = True
+        except ValueError as e:
+            converter.OP.append(str(e))
+            converter.save_op_list(op_list)
+
+        if should_finish:
+            break
+    
+if __name__ == '__main__':
+
+    args = argparse.ArgumentParser()
+    args.add_argument("--input", '-i', type=str, help="the input dot directory", default="/ibex/tmp/zhoul0e/all")
+    args.add_argument("--output", '-o', type=str, help="The outout directory", default="/ibex/tmp/zhoul0e/cpg_file")
+    args = args.parse_args()
+
+    pwd = args.input
+    save_dir = args.output
+    
+    op_list = "./op_list.pkl"
+    
+    iterative_run(pwd, save_dir, op_list)
+    
+    

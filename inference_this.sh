@@ -2,6 +2,7 @@
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=32
 #SBATCH -J output
+#SBATCH --partition=batch
 #SBATCH -o output.%J.out
 #SBATCH -e output.%J.err
 #SBATCH --time=20:00:00
