@@ -8,6 +8,7 @@ from model import PLModelForAST
 from dataset import ASTGraphDataModule
 from collections import Counter
 from typing import Dict, List
+from sklearn.metrics import roc_auc_score
 
 
 def get_cos_similar_multi(v1, v2):
@@ -162,7 +163,7 @@ class InferenceModel:
         
     def get_single_function_embedding(self, dicts: dict):
         feature, adj, name = self.to_tensor(dicts)
-        embedding = self.model.my_model(adj, feature).cpu().numpy()
+        embedding = self.model.my_model(adj, feature).detach().cpu().numpy()
         return name, FunctionEmbedding(name=name, adj=adj, feature=feature, embedding=embedding)
         
     @torch.no_grad()
@@ -189,7 +190,7 @@ class InferenceModel:
             content = json.loads(content)
             f.close()
         feature, adj, name = self.to_tensor(content)
-        embedding = self.model.my_model(adj, feature).cpu().numpy()
+        embedding = self.model.my_model(adj, feature).detach().cpu().numpy()
         return name, FunctionEmbedding(name=name, adj=adj, feature=feature, embedding=embedding)
 
     def to_tensor(self, json_dict: dict):
@@ -262,6 +263,7 @@ class InferenceModel:
         result: Dict[str, list] = {}
 
         for c in common_function:
+            dict
             query = function_set1[c].embedding
             mm = get_cos_similar_multi(query, mat2)
             rank_list = sorted(zip(mm.reshape(-1), list(function_set2.keys())), key=lambda x: x[0], reverse=True)[:self.config.topK]
@@ -295,12 +297,137 @@ class InferenceModel:
                     if "CTU" in x or "CTD" in x:
                         return True
         return False
-        
-    def ROC(self, function_list1, function_list2):
+            
+    def test_recall_K_pool(self, dataset:dict):
+        recall = []
+        for k in range(1, 11):
+            correct_total = 0
+            total_total = 0
+            
+            self.config.topK = k
+
+            for binary_name in dataset['data']:
+                for arch1 in ['gcc', 'arm-linux-gnueabi', 'powerpc-linux-gnu', 'mips-linux-gnu']:
+                    for opt1 in ["-O0", "-O1", "-O2", "-O3"]:
+                        try:
+                            print(f"Doing {arch1}{opt1} vs {binary_name}, current {correct_total}/{total_total} = {correct_total/(total_total+1)}")
+                            function_list1 = self.filter_env(dataset['data'][binary_name], arch1, opt1)
+                            function_pool1 = dataset['data'][binary_name]
+                            with torch.no_grad():
+                                correct, total = self.get_test_pairs_pool(function_list1=function_list1, function_pool=function_pool1) 
+                            correct_total += correct
+                            total_total += total
+                        except ValueError:
+                            print("No that Architecture and Opt_level")
+                                
+            recall.append(correct_total / total_total)
+            print(f"recall@{k}: {correct_total / total_total}")
+        print(recall)
+        return recall
+    
+    def test_recall_K_file(self, dataset:dict, max_k: int = 10):
+        recall = []
+        for k in range(1, max_k + 1):
+            correct_total = 0
+            total_total = 0
+            
+            self.config.topK = k
+
+            for binary_name in dataset['data']:
+                for arch1 in ['gcc', 'arm-linux-gnueabi', 'powerpc-linux-gnu', 'mips-linux-gnu']:
+                    for opt1 in ["-O0", "-O1", "-O2", "-O3"]:
+                        for arch2 in ['gcc', 'arm-linux-gnueabi', 'powerpc-linux-gnu', 'mips-linux-gnu']:
+                            for opt2 in ["-O0", "-O1", "-O2", "-O3"]:
+                                try:
+                                    print(f"Doing {arch1}{opt1} vs {arch2}{opt2}, current {correct_total}/{total_total} = {correct_total/(total_total+1)}")
+                                    function_list1 = self.filter_env(dataset['data'][binary_name], arch1, opt1)
+                                    function_list2 = self.filter_env(dataset['data'][binary_name], arch2, opt2)
+                                    with torch.no_grad():
+                                        correct, total = self.get_test_pairs(function_list1=function_list1, function_list2=function_list2) 
+                                    correct_total += correct
+                                    total_total += total
+                                except ValueError:
+                                    print("No that Architecture and Opt_level")
+                                
+            recall.append(correct_total / total_total)
+            print(f"recall@{k}: {correct_total / total_total}")
+        print(recall)
+        return recall
+    
+    def ROC_pair(self, function_list1, function_list2):
         function_set1 = self.get_function_set_embedding(function_list=function_list1)
         function_set2 = self.get_function_set_embedding(function_list=function_list2)
         # TODO: add ROC and AUC
+        # TODO: Different stratege, by all or by function/arch then take the average?
+        function2_name_list = list(function_set2.keys())
+        
+        function2_embedding = []
+        for function2_name in function2_name_list:
+            function2_embedding.append(function_set2[function2_name].embedding)
+        function2_embedding = np.vstack(function2_embedding)
+            
+        scores = []
+        labels = []
+        for function1 in list(function_set1):
+            mm = get_cos_similar_multi(function_set1[function1].embedding, function2_embedding)
+            scores.append(max(mm.reshape(-1)))
+            labels.append(int(function1 in function2_name_list))
+        return scores, labels
+         
+    def AUC(self, dataset: dict):
+        arches = ['gcc', 'arm-linux-gnueabi', 'powerpc-linux-gnu', 'mips-linux-gnu']
+        opts = ["-O0", "-O1", "-O2", "-O3"]
+        
+        scores = []
+        labels = []
+        
+        for binary_name in dataset['data']:
+            for arch1 in arches:
+                for opt1 in opts:
+                    for arch2 in arches:
+                        for opt2 in opts:
+                            try:
 
+                                function_list1 = self.filter_env(dataset['data'][binary_name], arch=arch1, opt=opt1)
+                                function_list2 = self.filter_env(dataset['data'][binary_name], arch=arch2, opt=opt2)
+                                with torch.no_grad():
+                                    score, label = self.ROC_pair(function_list1=function_list1, function_list2=function_list2)
+                                    
+                                scores.extend(score)
+                                labels.extend(label)
+                                
+                            except ValueError:
+                                print("No that Architecture and Opt_level")
+        roc_score = roc_auc_score(y_true=labels, y_score=scores)
+        print(roc_score)
+        return roc_score
+    
+    def AUC_average(self, dataset: dict):
+        arches = ['gcc', 'arm-linux-gnueabi', 'powerpc-linux-gnu', 'mips-linux-gnu']
+        opts = ["-O0", "-O1", "-O2", "-O3"]
+        
+        auc_score = []
+        
+        for binary_name in dataset['data']:
+            for arch1 in arches:
+                for opt1 in opts:
+                    for arch2 in arches:
+                        for opt2 in opts:
+                            try:
+
+                                function_list1 = self.filter_env(dataset['data'][binary_name], arch=arch1, opt=opt1)
+                                function_list2 = self.filter_env(dataset['data'][binary_name], arch=arch2, opt=opt2)
+                                with torch.no_grad():
+                                    score, label = self.ROC_pair(function_list1=function_list1, function_list2=function_list2)
+                                    
+                                auc_score.append(roc_auc_score(y_true=label, y_score=score))
+                                
+                            except ValueError:
+                                print("No that Architecture and Opt_level")
+
+        auc_score = np.mean(auc_score)
+        return auc_score
+        
 if __name__ == '__main__':
     model_config = ModelConfig()
     
@@ -308,38 +435,12 @@ if __name__ == '__main__':
         dataset = pickle.load(f)
         f.close()
     
-    model_config.model_path = "epoch=9-step=590920.ckpt"
+    model_config.model_path = "last.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = dataset['feature_len']
     model_config.cuda = True
     model_config.topK = 10
     model = InferenceModel(model_config)
     
-    recall = []
-    
-
-        
-    for k in range(1, 11):
-    
-        correct_total = 0
-        total_total = 0
-        
-        model.config.topK = k
-
-        for binary_name in dataset['data']:
-            for arch1 in ['gcc', 'arm-linux-gnueabi', 'powerpc-linux-gnu', 'mips-linux-gnu']:
-                for opt1 in ["-O0", "-O1", "-O2", "-O3"]:
-                    try:
-                        print(f"Doing {arch1}{opt1} vs {binary_name}, current {correct_total}/{total_total} = {correct_total/(total_total+1)}")
-                        function_list1 = model.filter_env(dataset['data'][binary_name], arch1, opt1)
-                        function_pool1 = dataset['data'][binary_name]
-                        with torch.no_grad():
-                            correct, total = model.get_test_pairs_pool(function_list1=function_list1, function_pool=function_pool1) 
-                        correct_total += correct
-                        total_total += total
-                    except ValueError:
-                        print("No that Architecture and Opt_level")
-                            
-        recall.append(correct_total / total_total)
-        print(f"recall@{k}: {correct_total / total_total}")
-    print(recall)
+    # model.AUC_average(dataset)
+    model.test_recall_K_file(dataset, max_k=50)
