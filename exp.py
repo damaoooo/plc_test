@@ -1,28 +1,42 @@
-import os
-import json
-import matplotlib.pyplot as plt
-from collections import Counter
+import multiprocessing
+import random
+import time
 
-names = []
-good_fun = []
-path = "dataset/door"
-for root in os.listdir(path):
-    if not os.path.isdir(os.path.join(path, root)):
-        continue
-    for file in os.listdir(os.path.join(path, root, "c_cpg")):
-        if file.endswith(".json"):
+
+
+def crash(index):
+    s = random.randint(1, 3)
+    time.sleep(1)
+    print(index, "is runninng")
+    if s == 1:
+        raise ValueError
+    
+    elif s == 2:
+        raise IndexError
+    
+    else:
+        raise KeyError
+
+def start_up(pool):
+    for i in range(100):
+        try:
+            print("Time after apply is", time.time())
+            s = pool.apply_async(func=crash, args=(i, ))
             
-            with open(os.path.join(path, root, "c_cpg", file), 'r') as f:
-                content = f.read()
-                f.close()
-            content = json.loads(content)
-            function_name = content['name'].split("__")[0]
-            names.append(function_name)
-            adj = content["adj"]
-            if len(adj[0]) < 1000:
-                good_fun.append(function_name)
+        except ValueError as e:
+            print("ValueError at", i)
+            continue
+        
+        except KeyboardInterrupt as e:
+            print("KeyboardInterrupt at", i)
+            exit(1)
 
-print(list(set(names)), len(list(set(names))))
-print(list(set(good_fun)), len(list(set(good_fun))))
-print(set(names) - set(good_fun))
-print(Counter(good_fun))
+        except:
+            print("Exception at", i)
+            continue
+    pool.close()
+    pool.join()
+
+if __name__ == '__main__':
+    pool = multiprocessing.Pool(processes=10)
+    start_up(pool)
