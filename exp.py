@@ -1,42 +1,27 @@
 import multiprocessing
-import random
+import threading
 import time
 
+queue = multiprocessing.Manager().Queue(maxsize=1000)
+l = []
 
-
-def crash(index):
-    s = random.randint(1, 3)
+def producer(index):
     time.sleep(1)
-    print(index, "is runninng")
-    if s == 1:
-        raise ValueError
-    
-    elif s == 2:
-        raise IndexError
-    
-    else:
-        raise KeyError
+    queue.put(index)
 
-def start_up(pool):
-    for i in range(100):
-        try:
-            print("Time after apply is", time.time())
-            s = pool.apply_async(func=crash, args=(i, ))
-            
-        except ValueError as e:
-            print("ValueError at", i)
-            continue
-        
-        except KeyboardInterrupt as e:
-            print("KeyboardInterrupt at", i)
-            exit(1)
+def consumer():
+    while True:
+        l.append(queue.get())
 
-        except:
-            print("Exception at", i)
-            continue
+def main():
+    pool = multiprocessing.Pool(10)
+    threading.Thread(target=consumer).start()
+    for i in range(20):
+        pool.apply_async(producer, args=(i,))
+    
     pool.close()
     pool.join()
 
 if __name__ == '__main__':
-    pool = multiprocessing.Pool(processes=10)
-    start_up(pool)
+    main()
+    print(l)
