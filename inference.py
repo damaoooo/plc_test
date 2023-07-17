@@ -162,9 +162,19 @@ class InferenceModel:
         return name_list, function_result_list
         
     def get_single_function_embedding(self, dicts: dict):
-        feature, adj, name = self.to_tensor(dicts)
         with torch.no_grad():
-            embedding = self.model.my_model(adj, feature).detach().cpu().numpy()
+            tfeature, tadj, name = self.to_tensor(dicts)
+            tembedding = self.model.my_model(tadj, tfeature).detach().cpu()
+            
+        embedding = tembedding.clone().numpy()
+        del tembedding
+        
+        adj = tadj.detach().cpu().clone().numpy()
+        del tadj
+        
+        feature = tfeature.detach().cpu().clone().numpy()
+        del tfeature
+
         return name, FunctionEmbedding(name=name, adj=adj, feature=feature, embedding=embedding)
         
     @torch.no_grad()
@@ -219,7 +229,7 @@ class InferenceModel:
         return feature, adj_matrix, name
     
     @torch.no_grad()
-    def get_test_pairs_pool(self, function_list1: List, function_pool: Dict):
+    def get_test_pairs_pool_embedding(self, function_list1: List, function_pool: Dict):
         pool_name_list, function_pool = self.get_function_pool_embedding(function_pool)
         function_set = self.get_function_set_embedding(function_list1)
         
@@ -269,15 +279,15 @@ class InferenceModel:
             mm = get_cos_similar_multi(query, mat2)
             rank_list = sorted(zip(mm.reshape(-1), list(function_set2.keys())), key=lambda x: x[0], reverse=True)[:self.config.topK]
             result[c] = rank_list.copy()
+            
+        return result
+    
+    def get_recall_score(self, result: Dict[str, list], k: int = 10):
 
         correct = 0
         for c in result:
-            if self.judge(c, [x[1] for x in result[c]]):
+            if self.judge(c, [x[1] for x in result[c][:k]]):
                 correct += 1
-                # print(c, result[c], "Right")
-            # else:
-                # print(c, result[c], "Wrong")
-
         return correct, len(result.keys())
     
     def filter_env(self, dataset: Dict):
@@ -300,22 +310,24 @@ class InferenceModel:
             
     def test_recall_K_pool(self, dataset:dict, max_k=50):
         recall = []
-        for k in range(1, max_k + 1):
-            correct_total = 0
-            total_total = 0
+        self.config.topK = max_k
             
-            self.config.topK = k
+        correct_total = 0
+        total_total = 0
 
-            for binary_name in dataset['data']:
-                try:
-                    function_list1 = self.filter_env(dataset['data'][binary_name])
-                    function_pool1 = dataset['data'][binary_name]
-                    with torch.no_grad():
-                        correct, total = self.get_test_pairs_pool(function_list1=function_list1, function_pool=function_pool1) 
-                    correct_total += correct
-                    total_total += total
-                except ValueError:
-                    print("No that Architecture and Opt_level")
+        for binary_name in dataset['data']:
+            try:
+                function_list1 = self.filter_env(dataset['data'][binary_name])
+                function_pool1 = dataset['data'][binary_name]
+                with torch.no_grad():
+                    result = self.get_test_pairs_pool_embedding(function_list1=function_list1, function_pool=function_pool1) 
+                    for k in range(1, max_k + 1):
+                        correct, total = self.get_recall_score(result, k=k)
+
+                correct_total += correct
+                total_total += total
+            except ValueError:
+                print("No that Architecture and Opt_level")
                                 
             recall.append(correct_total / total_total)
             print(f"recall@{k}: {correct_total / total_total}")
@@ -432,7 +444,7 @@ if __name__ == '__main__':
         dataset = pickle.load(f)
         f.close()
     
-    model_config.model_path = "lightning_logs/version_0/checkpoints/epoch=73-step=452732.ckpt"
+    model_config.model_path = "epoch=73-step=452732.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 149
     model_config.cuda = True
