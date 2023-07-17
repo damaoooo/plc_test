@@ -1,27 +1,12 @@
-import multiprocessing
-import threading
-import time
+import angr
 
-queue = multiprocessing.Manager().Queue(maxsize=1000)
-l = []
+filename = "/home/damaoooo/Downloads/OpenPLC_v3/webserver/core/openplc"
 
-def producer(index):
-    time.sleep(1)
-    queue.put(index)
-
-def consumer():
-    while True:
-        l.append(queue.get())
-
-def main():
-    pool = multiprocessing.Pool(10)
-    threading.Thread(target=consumer).start()
-    for i in range(20):
-        pool.apply_async(producer, args=(i,))
-    
-    pool.close()
-    pool.join()
-
-if __name__ == '__main__':
-    main()
-    print(l)
+entry_offset = 0x1288
+proj = angr.Project(filename, load_options={'auto_load_libs':True})
+print(proj.arch)
+state = proj.factory.call_state(entry_offset, angr.PointerWrapper(0x1000))
+print(state.regs.ip)
+simgr = proj.factory.simulation_manager(state)
+simgr.run()
+print(simgr.deadended)

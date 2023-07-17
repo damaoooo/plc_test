@@ -460,11 +460,6 @@ def run_it(pwd, save_dir, converter: Converter, queue: Queue, control: Queue, po
     
     all_data['adj_len'] = max_nodes
     all_data['feature_len'] = converter.length
-    
-    print("Convert Finish, saving cache")
-    with open("./all_data_cache.pkl", 'wb') as f:
-        pickle.dump(all_data, f)
-        f.close()
 
     ############################################################
     #           filter the useful function
@@ -484,6 +479,11 @@ def run_it(pwd, save_dir, converter: Converter, queue: Queue, control: Queue, po
     for test_b in all_data['data']:
         for func in all_data['data'][test_b]:
             total_function_num += len(all_data['data'][test_b][func])
+
+    print("Convert Finish, saving cache")
+    with open("./all_data_cache.pkl", 'wb') as f:
+        pickle.dump(all_data, f)
+        f.close()
             
     print("Total Functions:", total_function_num)
 
