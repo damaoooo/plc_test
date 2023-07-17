@@ -42,3 +42,6 @@ my_test.py
 exp.py
 *.sif
 cpg_v0.1.sif
+convert_this.sh
+train_this.sh
+coreutil_handle.sh

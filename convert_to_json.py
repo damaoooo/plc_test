@@ -11,6 +11,9 @@ import cxxfilt
 import shutil
 import argparse
 import random
+from multiprocessing import Pool, Queue
+import multiprocessing
+import threading
 
 np.set_printoptions(suppress=True)
 
@@ -225,14 +228,17 @@ class Converter:
         floatingPointString = '0b' + sign + exponet + mantissa
         return hex(int(floatingPointString, 2))
 
-def convert_file(file_name: str, converter: Converter):
+def convert_file(file_name: str, binary_name: str, converter: Converter, queue: Queue, control: Queue):
     G = nx.Graph(pgv.AGraph(file_name))
     
     function_name = re.sub("_part_\d+", "", G.name)
     function_name = re.sub("_constprop_\d+", "", function_name)
     function_name = re.sub("_isra_\d+", "", function_name)
-    function_name = cxxfilt.demangle(function_name)
-    function_name = function_name[:function_name.find('(')]
+    try:
+        function_name = cxxfilt.demangle(function_name)
+    except cxxfilt.InvalidName:
+        queue.put({})
+        return {}
 
     # if not ("_init_" in function_name or "_body" in function_name):
     #     continue
@@ -247,18 +253,25 @@ def convert_file(file_name: str, converter: Converter):
     adj = [start, end]
     # adj = np.array(nx.adjacency_matrix(G).todense()).tolist()
     
-    if len(adj[0]) < 10 or len(adj[0]) > 1500:
-        return {}
+    if len(adj[0]) < 10 or len(adj[0]) > 1000:
+        queue.put({})
+        return
     
     features = []
     for nodes in G.nodes:
         s: str = G.nodes[nodes]['label']
         s = html.unescape(s)
         tpl = s[1:-1].split(',')
-        features.append(converter.convert(tpl))
+        try:
+            features.append(converter.convert(tpl))
+        except ValueError as e:
+            control.put(e)
+            queue.put({})
+            return
 
-    out = {'adj': adj, "feature": features, "name": function_name}
-    return out
+    out = {'adj': adj, "feature": features, "name": function_name, "binary": binary_name}
+    queue.put(out)
+    return
 
 def print_sample(x):
     print(x['name'], x['archtecture'], x['binary'], x['opt_level'])
@@ -273,7 +286,11 @@ def make_paris(data):
         for func in data['data'][binary]:
             for x in data['data'][binary][func]:
                 # print(x['name'], x['archtecture'], x['binary'], x['opt_level'])
-                same = random.choice([xx for xx in data['data'][binary][func] if xx != x])
+                try:
+                    same = random.choice([xx for xx in data['data'][binary][func] if xx != x])
+                except IndexError:
+                    print("Same pair not found in function", func, "in binary", binary, "skipping")
+                    continue
                 different_binary_name = random.choice(list(data['data'].keys()))
                 different_function_name = random.choice(list(data['data'][different_binary_name].keys()))
                 different = random.choice(data['data'][different_binary_name][different_function_name])
@@ -283,6 +300,9 @@ def make_paris(data):
 def slice_store(pairs, offset, path):
     
     file_list = []
+    if os.path.exists(path):
+        shutil.rmtree(path)
+    os.mkdir(path)
     
     cnt = 0
     
@@ -299,10 +319,12 @@ def slice_store(pairs, offset, path):
         f.write(json.dumps(meta_info))
         f.close()
         
-def split_dataset(dataset: dict, ratio = 0.1):
+def split_dataset_by_binary(dataset: dict, ratio = 0.1):
     test_num = int(ratio * len(dataset['data']))
     test_binaries = random.sample(list(dataset['data'].keys()), test_num)
 
+    total_function_num = 0
+    
     count = 0
     for test_b in dataset['data']:
         for func in dataset['data'][test_b]:
@@ -319,12 +341,72 @@ def split_dataset(dataset: dict, ratio = 0.1):
         del dataset['data'][test_b]
         
     return dataset, test_data
+
+def split_dataset_by_name(dataset: dict, ratio = 0.1, binary_name: str = 'uboot'):
+    test_num = int(ratio * len(dataset['data'][binary_name]))
+    test_functions = random.sample(list(dataset['data'][binary_name].keys()), test_num)
+
+    count = 0
+    total_function_num = 0
+    for func in dataset['data'][binary_name]:
+        total_function_num += len(dataset['data'][binary_name][func])
+        if func in test_functions:
+            count += len(dataset['data'][binary_name][func])
+                
+    print("Selected Function Name:", test_functions)
+    print("Test Function", count, "Total Function", total_function_num, "Ratio:", count / total_function_num)
+    test_data = {'data': {}, "adj_len": dataset['adj_len'], "feature_len": dataset['feature_len']}
     
-def run_it(pwd, save_dir, converter: Converter):
+    test_data['data'][binary_name] = {}
+
+    for test_func in test_functions:
+        test_data['data'][binary_name][test_func] = dataset['data'][binary_name][test_func]
+        del dataset['data'][binary_name][test_func]
+        
+    return dataset, test_data
+
+
+def collector(queue: Queue, control: Queue, all_data: dict):
+    feature_len = 0
+    adj_len = 0
+    while 1:
+        if queue.empty():
+            continue
+
+        if not control.empty():
+            break
+        else:
+            x = queue.get()
+            if x == "finish":
+                print("I Got An Finish, Stop")
+                break
+
+            else:
+                if not x:
+                    continue
+                binary_name = x['binary']
+                print("Got", x['name'], len(all_data['data'][binary_name]))
+                function_name = x['name']
+                adj_len = max(adj_len, len(x['feature']))
+                feature_len = max(len(x['feature'][0]), feature_len)
+
+                if function_name not in all_data['data'][binary_name]:
+                    all_data['data'][binary_name][function_name] = [x]
+                else:
+                    all_data['data'][binary_name][function_name].append(x)
+
+
+    print("Finish")
+
+    
+def run_it(pwd, save_dir, converter: Converter, queue: Queue, control: Queue, pool: Pool, read_cache: bool = True):
     if os.path.exists(save_dir):
         shutil.rmtree(save_dir)
     
     os.mkdir(save_dir)
+
+    json_dir = os.path.join(save_dir, "json_file")
+    os.mkdir(json_dir)
 
     cnt = 1
 
@@ -332,44 +414,68 @@ def run_it(pwd, save_dir, converter: Converter):
 
     all_data = {'data':{}, 'adj_len':0, 'feature_len': 0}
 
+    threading.Thread(target=collector, args=(queue, control, all_data), name="Collector").start()
+
     for arch in os.listdir(pwd):
-        lifted_dir = os.path.join(pwd, arch, 'lifted')
-        for cpg_dir in os.listdir(lifted_dir):
-            if not (os.path.isdir(os.path.join(lifted_dir, cpg_dir)) and cpg_dir.startswith("c_dot_")):
+
+        if read_cache:
+            if os.path.exists("./all_data_cache.pkl"):
+                print("Reading cache")
+                with open("./all_data_cache.pkl", 'rb') as f:
+                    all_data = pickle.load(f)
+                    f.close()
+                print("Read Finish")
+                break
+            else:
+                print("No cache file found")
+
+        if not control.empty():
+            print("Stoping Enumerate the architecture")
+            break
+
+        arch: str
+        if arch.startswith('cpg'):
+            continue
+
+        lifted_path = os.path.join(pwd, arch, "lifted")
+        
+        for binary in os.listdir(lifted_path):
+            if not binary.startswith("c_dot"):
                 continue
-            binary_name = cpg_dir[6:]
+
+            cpg_dir = os.path.join(lifted_path, binary)
+
+            binary_name = binary.replace("c_dot_", "")
             
             if binary_name not in all_data['data']:
                 all_data['data'][binary_name] = {}
                 
-            for dot_file in os.listdir(os.path.join(lifted_dir, cpg_dir)):
-                file_path = os.path.join(lifted_dir, cpg_dir, dot_file)
-                try:
-                    out = convert_file(file_path, converter)
-                except cxxfilt.InvalidName as e:
-                    print("Function:", e, 'Invalid')
-                    out = {}
-                if not out :
-                    continue
-                
-                with open(os.path.join(save_dir, str(cnt - 1) + '.json'), 'w', encoding='utf-8') as f:
-                    f.write(json.dumps(out))
-                    f.close()
-                    cnt += 1
-                    
-                function_name = out['name']
-                max_nodes = max(max_nodes, len(out['feature']))
-                
-                if function_name not in all_data['data'][binary_name]:
-                    all_data['data'][binary_name][function_name] = [out]
-                else:
-                    all_data['data'][binary_name][function_name].append(out)
-                
+            for dot_file in os.listdir(cpg_dir):
+                file_path = os.path.join(cpg_dir, dot_file)
+                pool.apply(func=convert_file, args=(file_path, binary_name, converter, queue, control))
 
+                if not control.empty():
+                    print("Stoping Enumerate the function")
+                    break
+
+    queue.put("finish")
+    if not control.empty():
+        print("Stoping the program")
+        return
+
+    pool.close()  
+    pool.join()  
+    
     print(f'max_nodes-{max_nodes}, feature_length-{converter.length}')
+    
     all_data['adj_len'] = max_nodes
     all_data['feature_len'] = converter.length
     
+    print("Convert Finish, saving cache")
+    with open("./all_data_cache.pkl", 'wb') as f:
+        pickle.dump(all_data, f)
+        f.close()
+
     ############################################################
     #           filter the useful function
     ############################################################
@@ -396,31 +502,51 @@ def run_it(pwd, save_dir, converter: Converter):
     ############################################################
     print("Making total dataset")
     total_pairs = make_paris(all_data)
-    slice_store(total_pairs, 10000, path="/ibex/tmp/zhoul0e/dataset/all")
+    slice_store(total_pairs, 10000, path=os.path.join(save_dir, "total"))
     
     ############################################################
     #                   split the dataset
     ############################################################
     print("Making split dataset")
     random.seed(114514)
-    train_set, test_set = split_dataset(all_data)
+    train_set, test_set = split_dataset_by_binary(all_data)
     train_pair = make_paris(train_set)
     test_pair = make_paris(test_set)
-    slice_store(train_pair, 10000, path="/ibex/tmp/zhoul0e/dataset/train")
-    slice_store(test_pair, 10000, path="/ibex/tmp/zhoul0e/dataset/test")
+    slice_store(train_pair, 10000, path=os.path.join(save_dir, "train"))
+    slice_store(test_pair, 10000, path=os.path.join(save_dir, "test"))
     
-def iterative_run(input_dir: str, save_dir: str, op_list: str):
+def iterative_run(input_dir: str, save_dir: str, op_list: str, queue: Queue, control: Queue, pool: Pool, cpu_num: int = os.cpu_count()):
 
     should_finish = False
+    print("Start to run......")
     while 1:    
         try:
             converter = Converter()
             converter.load_op_list(op_list)
-            run_it(input_dir, save_dir, converter)
+
+            # Clear the queue
+            while not queue.empty():
+                queue.get()
+
+            # Clear the control queue
+            while not control.empty():
+                control.get()
+
+            run_it(input_dir, save_dir, converter, queue, control, pool)
+            
+            if not control.empty():
+                print("Stoping the program")
+                raise ValueError(control.get())
             should_finish = True
         except ValueError as e:
             converter.OP.append(str(e))
             converter.save_op_list(op_list)
+            print("Lost:", str(e), "Adding to op_list")
+            # stop the pool
+            pool.terminate()
+
+            # restart the pool
+            pool = Pool(processes=cpu_num)
 
         if should_finish:
             break
@@ -430,13 +556,17 @@ if __name__ == '__main__':
     args = argparse.ArgumentParser()
     args.add_argument("--input", '-i', type=str, help="the input dot directory", default="/ibex/tmp/zhoul0e/all")
     args.add_argument("--output", '-o', type=str, help="The outout directory", default="/ibex/tmp/zhoul0e/cpg_file")
+    args.add_argument("--jobs", '-j', type=int, help="The number of jobs", default=os.cpu_count())
     args = args.parse_args()
 
     pwd = args.input
     save_dir = args.output
     
     op_list = "./op_list.pkl"
+    pool = Pool(processes=args.jobs)
+    queue = multiprocessing.Manager().Queue(maxsize=10000)
+    control = multiprocessing.Manager().Queue(maxsize=5)
     
-    iterative_run(pwd, save_dir, op_list)
+    iterative_run(pwd, save_dir, op_list, queue, control, pool, cpu_num=args.jobs)
     
     
