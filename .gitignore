@@ -34,3 +34,9 @@ __pycache__
 *dataset
 *.ckpt
 exp.py
+cpg_v0.1.sif
+*.out
+*.err
+result_recall_K
+*.ipynb
+my_test.py
