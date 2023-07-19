@@ -19,10 +19,8 @@ def get_cos_similar_multi(v1, v2):
 
 
 class FunctionEmbedding:
-    def __init__(self, name: str, adj, feature, embedding):
+    def __init__(self, name: str, embedding):
         self.name = name
-        self.adj = adj
-        self.feature = feature
         self.embedding = embedding
         self.cosine = 0
 
@@ -169,13 +167,13 @@ class InferenceModel:
         embedding = tembedding.clone().numpy()
         del tembedding
         
-        adj = tadj.detach().cpu().clone().numpy()
+        # adj = tadj.detach().cpu().clone().numpy()
         del tadj
         
-        feature = tfeature.detach().cpu().clone().numpy()
+        # feature = tfeature.detach().cpu().clone().numpy()
         del tfeature
 
-        return name, FunctionEmbedding(name=name, adj=adj, feature=feature, embedding=embedding)
+        return name, FunctionEmbedding(name=name, embedding=embedding)
         
     @torch.no_grad()
     def get_top_k(self, file_dir, function_filename):
@@ -248,12 +246,7 @@ class InferenceModel:
             rank_list = sorted(zip(mm.reshape(-1), pool_name_list), key=lambda x: x[0], reverse=True)[:self.config.topK]
             result[c] = rank_list.copy()
         
-        correct = 0
-        for c in result:
-            if self.judge(c, [x[1] for x in result[c]]):
-                correct += 1
-                
-        return correct, len(result.keys())
+        return result
             
         
     
@@ -274,7 +267,6 @@ class InferenceModel:
         result: Dict[str, list] = {}
 
         for c in common_function:
-            dict
             query = function_set1[c].embedding
             mm = get_cos_similar_multi(query, mat2)
             rank_list = sorted(zip(mm.reshape(-1), list(function_set2.keys())), key=lambda x: x[0], reverse=True)[:self.config.topK]
@@ -308,7 +300,7 @@ class InferenceModel:
                         return True
         return False
             
-    def test_recall_K_pool(self, dataset:dict, max_k=50):
+    def test_recall_K_pool(self, dataset:dict, max_k=1000):
         recall = []
         self.config.topK = max_k
             
@@ -316,21 +308,26 @@ class InferenceModel:
         total_total = 0
 
         for binary_name in dataset['data']:
-            try:
-                function_list1 = self.filter_env(dataset['data'][binary_name])
-                function_pool1 = dataset['data'][binary_name]
-                with torch.no_grad():
-                    result = self.get_test_pairs_pool_embedding(function_list1=function_list1, function_pool=function_pool1) 
-                    for k in range(1, max_k + 1):
-                        correct, total = self.get_recall_score(result, k=k)
 
-                correct_total += correct
-                total_total += total
-            except ValueError:
-                print("No that Architecture and Opt_level")
-                                
-            recall.append(correct_total / total_total)
-            print(f"recall@{k}: {correct_total / total_total}")
+            function_list1 = self.filter_env(dataset['data'][binary_name])
+            function_pool1 = dataset['data'][binary_name]
+            with torch.no_grad():
+                with open("result.pkl", 'rb') as f:
+                    result = pickle.load(f)
+                    f.close()
+                # result = self.get_test_pairs_pool_embedding(function_list1=function_list1, function_pool=function_pool1)
+                with open("result.pkl", 'wb') as f:
+                    pickle.dump(result, f)
+                    f.close()
+                    
+                for k in range(1, max_k + 1):
+                    correct, total = self.get_recall_score(result, k=k)
+
+                    correct_total += correct
+                    total_total += total
+                                        
+                    recall.append(correct_total / total_total)
+                    print(f"recall@{k}: {correct_total / total_total}")
         print(recall)
         return recall
     
@@ -444,7 +441,7 @@ if __name__ == '__main__':
         dataset = pickle.load(f)
         f.close()
     
-    model_config.model_path = "epoch=73-step=452732.ckpt"
+    model_config.model_path = "lightning_logs/version_9/checkpoints/last.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 149
     model_config.cuda = True

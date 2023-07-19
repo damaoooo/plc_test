@@ -14,7 +14,7 @@ if __name__ == "__main__":
     torch.set_float32_matmul_precision('medium')
     
     print("Loading Dataset......")
-    my_dataset = ASTGraphDataModule(batch_size=1, num_workers=12, data_path="uboot_dataset/cpg_file")
+    my_dataset = ASTGraphDataModule(batch_size=1, num_workers=16, data_path="uboot_dataset")
     my_dataset.prepare_data()
 
     print("Dataset Loaded. adj length:", my_dataset.max_length, "feature length:", my_dataset.feature_length)

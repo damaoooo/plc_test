@@ -289,8 +289,7 @@ def make_paris(data):
                 try:
                     same = random.choice([xx for xx in data['data'][binary][func] if xx != x])
                 except IndexError:
-                    print("Same pair not found in function", func, "in binary", binary, "skipping")
-                    continue
+                    same = random.choice([xx for xx in data['data'][binary][func]])
                 different_binary_name = random.choice(list(data['data'].keys()))
                 different_function_name = random.choice(list(data['data'][different_binary_name].keys()))
                 different = random.choice(data['data'][different_binary_name][different_function_name])
@@ -522,7 +521,7 @@ def iterative_run(input_dir: str, save_dir: str, op_list: str, queue: Queue, con
             while not control.empty():
                 control.get()
 
-            run_it(input_dir, save_dir, converter, queue, control, pool)
+            run_it(input_dir, save_dir, converter, queue, control, pool, read_cache=False)
             if not control.empty():
                 print("Stoping the program")
                 raise ValueError(control.get())
