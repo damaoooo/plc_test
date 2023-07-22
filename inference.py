@@ -363,8 +363,6 @@ class InferenceModel:
     def ROC_pair(self, function_list1, function_list2):
         function_set1 = self.get_function_set_embedding(function_list=function_list1)
         function_set2 = self.get_function_set_embedding(function_list=function_list2)
-        # TODO: add ROC and AUC
-        # TODO: Different stratege, by all or by function/arch then take the average?
         function2_name_list = list(function_set2.keys())
         
         function2_embedding = []
