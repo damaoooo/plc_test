@@ -44,8 +44,8 @@ class ASTGraphDataset(Dataset):
 
     # @profile
     def _to_tensor(self, data: dict):
-        adj = data[0]
-        feature = data[1]
+        adj = data['adj']
+        feature = data['feature']
         feature = torch.FloatTensor(feature)
         # feature = torch.eye(self.feature_len)[feature]
         adj_matrix = torch.zeros([1000, 1000])
@@ -107,16 +107,16 @@ class ASTGraphDataModule(pl.LightningDataModule):
         return adj_len, feature_len, data
 
     def prepare_data(self):
-        adj_len, feature_len, train_data = self._load_pickle(
+        adj_len, feature_len, train_data = self._load_pickle_data(
             os.path.join(self.data_path, "total.pkl"))
 
         # Assume train_set and test_set are the same
-        _, _, test_data = self._load_pickle(
+        _, _, test_data = self._load_pickle_data(
             os.path.join(self.data_path, "test_set.pkl"))
 
         # total_dataset = ASTGraphDataset(data, max_adj=min(adj_len, 1000), feature_len=feature_len, exclude=self.exclude)
 
-        self.max_length = adj_len
+        self.max_length = 1000 if adj_len < 1000 else adj_len
         self.feature_length = feature_len
 
         self.train_set = ASTGraphDataset(
@@ -133,7 +133,7 @@ class ASTGraphDataModule(pl.LightningDataModule):
 
 if __name__ == "__main__":
     a0 = time.time()
-    p = ASTGraphDataModule(data_path="coreutil_dataset", num_workers=4)
+    p = ASTGraphDataModule(data_path="uboot_dataset/cpg_file", num_workers=8)
     p.prepare_data()
     train = p.train_dataloader()
     idx = 0
