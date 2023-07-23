@@ -54,7 +54,7 @@ class Converter:
             f.close()
         assert isinstance(result, list)
         self.OP = result
-        self.length = len(self.OP)
+        self.length = (len(self.LABEL) + 2) + (len(self.OP) + 2) + (len(self.FUNC) + 2) + 32 + (len(self.TYPE) + 2)
 
     def save_op_list(self, path):
         with open(path, 'wb') as f:
@@ -503,7 +503,8 @@ def run_it(pwd, save_dir, converter: Converter, queue: Queue, control: Queue, po
     for arch in os.listdir(pwd):
 
         if read_cache:
-            all_data = load_pickle(os.path.join(save_dir, "all_data_cache.pkl"))
+            all_data = load_pickle("all_data_cache.pkl")
+            all_data['data'] = all_data['data']['uboot'] # FIXME: Only for uboot
             print("Read Finish")
             break
 
@@ -551,13 +552,13 @@ def run_it(pwd, save_dir, converter: Converter, queue: Queue, control: Queue, po
     print("Total Functions:", total_function_num)
 
     print("Convert Finish, saving cache")        
-    save_pickle(all_data, os.path.join(save_dir, "all_data.pkl"))
+    save_pickle(all_data, "all_data.pkl")
 
     ############################################################
     #                   split the file
     ############################################################
     print("Making total dataset")
-    save_pickle(all_data, os.path.join(save_dir, "all_data.pkl"))
+    save_pickle(all_data, os.path.join(save_dir, "total.pkl"))
 
     ############################################################
     #                   split the dataset
@@ -587,7 +588,7 @@ def iterative_run(input_dir: str, save_dir: str, op_list: str, queue: Queue, con
                 control.get()
 
             run_it(input_dir, save_dir, converter, queue,
-                   control, pool, read_cache=False)
+                   control, pool, read_cache=True)
             if not control.empty():
                 print("Stoping the program")
                 raise ValueError(control.get())
