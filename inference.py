@@ -312,10 +312,10 @@ class InferenceModel:
             function_list1 = self.filter_env(dataset['data'][binary_name])
             function_pool1 = dataset['data'][binary_name]
             with torch.no_grad():
-                with open("result.pkl", 'rb') as f:
-                    result = pickle.load(f)
-                    f.close()
-                # result = self.get_test_pairs_pool_embedding(function_list1=function_list1, function_pool=function_pool1)
+                # with open("result.pkl", 'rb') as f:
+                #     result = pickle.load(f)
+                #     f.close()
+                result = self.get_test_pairs_pool_embedding(function_list1=function_list1, function_pool=function_pool1)
                 with open("result.pkl", 'wb') as f:
                     pickle.dump(result, f)
                     f.close()
@@ -439,11 +439,11 @@ if __name__ == '__main__':
         dataset = pickle.load(f)
         f.close()
     
-    model_config.model_path = "lightning_logs/version_9/checkpoints/last.ckpt"
+    model_config.model_path = "epoch=9-step=590920.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 149
     model_config.cuda = True
-    model_config.topK = 10
+    model_config.topK = 50
     model = InferenceModel(model_config)
     
     # model.AUC_average(dataset)

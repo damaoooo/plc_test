@@ -10,17 +10,19 @@ import pickle
 import json
 import os
 import gc
+import psutil
 import time
 import numpy as np
 
 
 class ASTGraphDataset(Dataset):
-    def __init__(self, data: dict, max_adj: int, feature_len: int) -> None:
+    def __init__(self, data: dict, max_adj: int, feature_len: int, pool_size: int) -> None:
         super().__init__()
         self.data = data
         self.function_list = list(data.keys())
         self.max_adj = max_adj
         self.feature_len = feature_len
+        self.pool_size = pool_size
 
     def __len__(self):
         return len(self.data)
@@ -39,8 +41,25 @@ class ASTGraphDataset(Dataset):
         sample = self._to_tensor(sample)
         same_sample = self._to_tensor(same_sample)
         different_sample = self._to_tensor(different_sample)
+        
+        # Pool candidates
+        if self.pool_size:
+            pool = self._get_pool(index)
+            pool = [self._to_tensor(x) for x in pool]
+            return sample, same_sample, different_sample, torch.tensor([0]), pool
 
         return sample, same_sample, different_sample, torch.tensor([0])
+    
+    
+    def _get_pool(self, index):
+        pool = []
+        # Get the function pool that does not contain the function_name
+        rest_list = self.function_list[:index] + self.function_list[index+1:]
+        functions = random.sample(rest_list, self.pool_size)
+        for func in functions:
+            pool.append(random.choice(self.data[func]))
+        return pool
+        
 
     # @profile
     def _to_tensor(self, data: dict):
@@ -68,11 +87,13 @@ class ASTGraphDataset(Dataset):
 
 
 class ASTGraphDataModule(pl.LightningDataModule):
-    def __init__(self, data_path: str = "!pairs.pkl", batch_size: int = 32, num_workers: int = 16, exclude: list = []) -> None:
+    def __init__(self, data_path: str = "!pairs.pkl", pool_size: int = 0, batch_size: int = 32, num_workers: int = 16, exclude: list = []) -> None:
         super().__init__()
         self.data_path = data_path
         self.train_set: Union[Dataset, None] = None
         self.val_set: Union[Dataset, None] = None
+        
+        self.pool_size = pool_size
 
         self.exclude = exclude
 
@@ -120,9 +141,9 @@ class ASTGraphDataModule(pl.LightningDataModule):
         self.feature_length = feature_len
 
         self.train_set = ASTGraphDataset(
-            data=train_data, max_adj=self.max_length, feature_len=self.feature_length)
+            data=train_data, max_adj=self.max_length, feature_len=self.feature_length, pool_size=self.pool_size)
         self.val_set = ASTGraphDataset(
-            data=test_data, max_adj=self.max_length, feature_len=self.feature_length)
+            data=test_data, max_adj=self.max_length, feature_len=self.feature_length, pool_size=self.pool_size)
 
     def train_dataloader(self):
         return DataLoader(dataset=self.train_set, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=False)
@@ -133,15 +154,17 @@ class ASTGraphDataModule(pl.LightningDataModule):
 
 if __name__ == "__main__":
     a0 = time.time()
-    p = ASTGraphDataModule(data_path="uboot_dataset/cpg_file", num_workers=8)
+    p = ASTGraphDataModule(data_path="uboot_dataset/cpg_file", pool_size=15, num_workers=2, batch_size=1)
     p.prepare_data()
     train = p.train_dataloader()
     idx = 0
     a1 = time.time()
     print("Overhead: ", a1 - a0)
+    print(u'当前进程的内存使用：%.4f GB' % (psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024 / 1024) )
     a2 = a1
     for i in iter(train):
         idx += 1
         print(idx)
         print("Single_time:", time.time() - a2)
         a2 = time.time()
+        break

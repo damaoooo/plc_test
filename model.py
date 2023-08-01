@@ -170,9 +170,10 @@ class MyModel(nn.Module):
     
 
 class PLModelForAST(pl.LightningModule):
-    def __init__(self, adj_length: int, lr: float=5e-5, in_features=64, hidden_features=128, output_features=64, n_heads=4, dropout=0.6, alpha=0.2) -> None:
+    def __init__(self, adj_length: int, pool_size: int=0, lr: float=5e-5, in_features=64, hidden_features=128, output_features=64, n_heads=4, dropout=0.6, alpha=0.2):
         super().__init__()
         self.lr = lr
+        self.pool_size= pool_size
     # def __init__(self, config) -> None:
     #     super().__init__()
     #     self.lr = config['lr']
@@ -190,7 +191,10 @@ class PLModelForAST(pl.LightningModule):
         self.save_hyperparameters()
 
     def forward(self, x):
-        sample, same, diff, label = x
+        if self.pool_size:
+            sample, same, diff, label, pool = x
+        else:
+            sample, same, diff, label = x
 
         sample_feature, sample_adj = sample
         same_feature, same_adj = same
@@ -208,6 +212,23 @@ class PLModelForAST(pl.LightningModule):
 
         loss1 = F.cosine_embedding_loss(latent_same, latent_sample, label[0] + 1)
         loss2 = F.cosine_embedding_loss(latent_sample, latent_diff, label[0] - 1)
+        
+        pool_latents = []
+        
+        if self.pool_size:
+            for k in pool:
+                pool_feature, pool_adj = k
+                pool_latent = self.my_model(pool_adj.squeeze(0), pool_feature.squeeze(0))
+                # use softmax for the pool
+                pool_latents.append(pool_latent)
+            pool_latents.append(latent_same)
+            pool_latents = torch.stack(pool_latents, dim=0)
+            similarity = F.cosine_similarity(latent_sample, pool_latents.squeeze(1))
+            
+            loss3 = F.cross_entropy(similarity, torch.tensor(self.pool_size, dtype=torch.long).to(device=self.device))
+            
+            return (loss1 + loss2 + loss3, F.cosine_similarity(latent_same, latent_sample).item() > F.cosine_similarity(latent_diff, latent_sample).item(),
+                    F.cosine_similarity(latent_same, latent_sample).item() - F.cosine_similarity(latent_diff, latent_sample).item())
 
         return (loss1 + loss2, F.cosine_similarity(latent_same, latent_sample).item() > F.cosine_similarity(latent_diff, latent_sample).item(),
                 F.cosine_similarity(latent_same, latent_sample).item() - F.cosine_similarity(latent_diff, latent_sample).item())
