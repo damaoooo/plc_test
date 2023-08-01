@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH -N 1
-#SBATCH --ntasks-per-node=4
+#SBATCH --ntasks=1 
+#SBATCH --cpus-per-task=32
 #SBATCH -J output
 #SBATCH -o output.%J.out
 #SBATCH -e output.%J.err
