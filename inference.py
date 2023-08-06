@@ -227,8 +227,20 @@ class InferenceModel:
         return feature, adj_matrix, name
     
     @torch.no_grad()
-    def get_test_pairs_pool_embedding(self, function_list1: List, function_pool: Dict):
-        pool_name_list, function_pool = self.get_function_pool_embedding(function_pool)
+    def get_test_pairs_pool_embedding(self, function_list1: List, function_pool: Dict, use_cache=""):
+        
+        if use_cache and os.path.exists(use_cache):
+            with open(use_cache, 'r') as f:
+                result = pickle.load(f)
+                pool_name_list, function_pool = result
+                f.close()
+        else:
+            pool_name_list, function_pool = self.get_function_pool_embedding(function_pool)
+            if use_cache:
+                with open(use_cache, 'w') as f:
+                    pickle.dump([pool_name_list, function_pool], f)
+                    f.close()
+                    
         function_set = self.get_function_set_embedding(function_list1)
         
         common_function = list(set(pool_name_list).intersection(set(function_set.keys())))
@@ -300,7 +312,7 @@ class InferenceModel:
                         return True
         return False
             
-    def test_recall_K_pool(self, dataset:dict, max_k=1000):
+    def test_recall_K_pool(self, dataset:dict, max_k=1000, cache_path=""):
         recall = []
         self.config.topK = max_k
             
@@ -313,12 +325,8 @@ class InferenceModel:
             function_pool1 = dataset['data'][binary_name]
             with torch.no_grad():
                 # with open("result.pkl", 'rb') as f:
-                #     result = pickle.load(f)
-                #     f.close()
-                result = self.get_test_pairs_pool_embedding(function_list1=function_list1, function_pool=function_pool1)
-                with open("result.pkl", 'wb') as f:
-                    pickle.dump(result, f)
-                    f.close()
+
+                result = self.get_test_pairs_pool_embedding(function_list1=function_list1, function_pool=function_pool1, use_cache=cache_path)
                     
                 for k in range(1, max_k + 1):
                     correct, total = self.get_recall_score(result, k=k)
