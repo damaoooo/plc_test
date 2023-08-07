@@ -14,14 +14,14 @@ if __name__ == "__main__":
     torch.set_float32_matmul_precision('medium')
     
     print("Loading Dataset......")
-    my_dataset = ASTGraphDataModule(batch_size=1, num_workers=16, pool_size=31, data_path="/ibex/tmp/zhoul0e/uboot_dataset/cpg_file")
+    my_dataset = ASTGraphDataModule(batch_size=1, num_workers=16, pool_size=31, data_path="uboot_dataset/cpg_file")
     my_dataset.prepare_data()
 
     print("Dataset Loaded. adj length:", my_dataset.max_length, "feature length:", my_dataset.feature_length)
     my_model = PLModelForAST(adj_length=1000, in_features=my_dataset.feature_length, lr=4e-4, pool_size=15
                              , alpha=0.2, dropout=0.3, hidden_features=64, n_heads=6, output_features=128)
     
-    load_checkpoint = "lightning_logs/version_26821273/checkpoints/last.ckpt"
+    load_checkpoint = "lightning_logs/version_14/checkpoints/last.ckpt"
     
     if load_checkpoint:
         my_model = my_model.load_from_checkpoint(load_checkpoint)

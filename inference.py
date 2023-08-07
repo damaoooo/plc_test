@@ -2,6 +2,7 @@ import torch
 import os
 import numpy as np
 import pickle
+import time
 import json
 import matplotlib.pyplot as plt
 from model import PLModelForAST
@@ -230,14 +231,14 @@ class InferenceModel:
     def get_test_pairs_pool_embedding(self, function_list1: List, function_pool: Dict, use_cache=""):
         
         if use_cache and os.path.exists(use_cache):
-            with open(use_cache, 'r') as f:
+            with open(use_cache, 'rb') as f:
                 result = pickle.load(f)
                 pool_name_list, function_pool = result
                 f.close()
         else:
             pool_name_list, function_pool = self.get_function_pool_embedding(function_pool)
             if use_cache:
-                with open(use_cache, 'w') as f:
+                with open(use_cache, 'wb') as f:
                     pickle.dump([pool_name_list, function_pool], f)
                     f.close()
                     
@@ -319,23 +320,27 @@ class InferenceModel:
         correct_total = 0
         total_total = 0
 
-        for binary_name in dataset['data']:
+        function_list1 = self.filter_env(dataset['data'])
+        function_pool1 = dataset['data']
+        start_time = time.time()
+        with torch.no_grad():
+            # with open("result.pkl", 'rb') as f:
 
-            function_list1 = self.filter_env(dataset['data'][binary_name])
-            function_pool1 = dataset['data'][binary_name]
-            with torch.no_grad():
-                # with open("result.pkl", 'rb') as f:
+            result = self.get_test_pairs_pool_embedding(function_list1=function_list1, function_pool=function_pool1, use_cache=cache_path)
+            total_length = 0
+            for func in function_pool1:
+                total_length += len(function_pool1[func])
+                
+            for k in range(1, max_k + 1):
+                correct, total = self.get_recall_score(result, k=k)
 
-                result = self.get_test_pairs_pool_embedding(function_list1=function_list1, function_pool=function_pool1, use_cache=cache_path)
-                    
-                for k in range(1, max_k + 1):
-                    correct, total = self.get_recall_score(result, k=k)
-
-                    correct_total += correct
-                    total_total += total
-                                        
-                    recall.append(correct_total / total_total)
-                    print(f"recall@{k}: {correct_total / total_total}")
+                correct_total += correct
+                total_total += total
+                                    
+                recall.append(correct_total / total_total)
+                print(f"recall@{k}: {correct_total / total_total}")
+        end_time = time.time()
+        print(f"Total time: {end_time - start_time}, Total Function: {total_length}, speed: {(end_time - start_time) / total_length} s/func")
         print(recall)
         return recall
     
@@ -443,11 +448,11 @@ class InferenceModel:
 if __name__ == '__main__':
     model_config = ModelConfig()
     
-    with open("all_data_cache.pkl", 'rb') as f:
+    with open("uboot_dataset/cpg_file/test_set.pkl", 'rb') as f:
         dataset = pickle.load(f)
         f.close()
     
-    model_config.model_path = "epoch=9-step=590920.ckpt"
+    model_config.model_path = "lightning_logs/version_14/checkpoints/epoch=14-step=35250.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 149
     model_config.cuda = True
@@ -455,4 +460,4 @@ if __name__ == '__main__':
     model = InferenceModel(model_config)
     
     # model.AUC_average(dataset)
-    model.test_recall_K_pool(dataset, max_k=50)
+    model.test_recall_K_pool(dataset, max_k=100, cache_path="./all_embedding.pkl")
