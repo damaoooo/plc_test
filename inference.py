@@ -19,10 +19,8 @@ def get_cos_similar_multi(v1, v2):
 
 
 class FunctionEmbedding:
-    def __init__(self, name: str, adj, feature, embedding):
+    def __init__(self, name: str, embedding):
         self.name = name
-        self.adj = adj
-        self.feature = feature
         self.embedding = embedding
         self.cosine = 0
 
@@ -162,9 +160,20 @@ class InferenceModel:
         return name_list, function_result_list
         
     def get_single_function_embedding(self, dicts: dict):
-        feature, adj, name = self.to_tensor(dicts)
-        embedding = self.model.my_model(adj, feature).detach().cpu().numpy()
-        return name, FunctionEmbedding(name=name, adj=adj, feature=feature, embedding=embedding)
+        with torch.no_grad():
+            tfeature, tadj, name = self.to_tensor(dicts)
+            tembedding = self.model.my_model(tadj, tfeature).detach().cpu()
+            
+        embedding = tembedding.clone().numpy()
+        del tembedding
+        
+        # adj = tadj.detach().cpu().clone().numpy()
+        del tadj
+        
+        # feature = tfeature.detach().cpu().clone().numpy()
+        del tfeature
+
+        return name, FunctionEmbedding(name=name, embedding=embedding)
         
     @torch.no_grad()
     def get_top_k(self, file_dir, function_filename):
@@ -218,8 +227,20 @@ class InferenceModel:
         return feature, adj_matrix, name
     
     @torch.no_grad()
-    def get_test_pairs_pool(self, function_list1: List, function_pool: Dict):
-        pool_name_list, function_pool = self.get_function_pool_embedding(function_pool)
+    def get_test_pairs_pool_embedding(self, function_list1: List, function_pool: Dict, use_cache=""):
+        
+        if use_cache and os.path.exists(use_cache):
+            with open(use_cache, 'rb') as f:
+                result = pickle.load(f)
+                pool_name_list, function_pool = result
+                f.close()
+        else:
+            pool_name_list, function_pool = self.get_function_pool_embedding(function_pool)
+            if use_cache:
+                with open(use_cache, 'wb') as f:
+                    pickle.dump([pool_name_list, function_pool], f)
+                    f.close()
+                    
         function_set = self.get_function_set_embedding(function_list1)
         
         common_function = list(set(pool_name_list).intersection(set(function_set.keys())))
@@ -237,12 +258,7 @@ class InferenceModel:
             rank_list = sorted(zip(mm.reshape(-1), pool_name_list), key=lambda x: x[0], reverse=True)[:self.config.topK]
             result[c] = rank_list.copy()
         
-        correct = 0
-        for c in result:
-            if self.judge(c, [x[1] for x in result[c]]):
-                correct += 1
-                
-        return correct, len(result.keys())
+        return result
             
         
     
@@ -263,29 +279,27 @@ class InferenceModel:
         result: Dict[str, list] = {}
 
         for c in common_function:
-            dict
             query = function_set1[c].embedding
             mm = get_cos_similar_multi(query, mat2)
             rank_list = sorted(zip(mm.reshape(-1), list(function_set2.keys())), key=lambda x: x[0], reverse=True)[:self.config.topK]
             result[c] = rank_list.copy()
+            
+        return result
+    
+    def get_recall_score(self, result: Dict[str, list], k: int = 10):
 
         correct = 0
         for c in result:
-            if self.judge(c, [x[1] for x in result[c]]):
+            if self.judge(c, [x[1] for x in result[c][:k]]):
                 correct += 1
-                # print(c, result[c], "Right")
-            # else:
-                # print(c, result[c], "Wrong")
-
         return correct, len(result.keys())
     
-    def filter_env(self, dataset: Dict, arch: str, opt: str):
+    def get_function_name_list(self, dataset: Dict):
         # dataset = Binary_Name - {"function1" : [], "function2": []}
         result = []
         for function_name in dataset:
             for function_content in dataset[function_name]:
-                if function_content['archtecture'] == arch and function_content['opt_level'] == opt:
-                    result.append(function_content)
+                result.append(function_content)
         return result
     
     def judge(self, func: str, candidate: list):
@@ -298,31 +312,36 @@ class InferenceModel:
                         return True
         return False
             
-    def test_recall_K_pool(self, dataset:dict):
-        recall = []
-        for k in range(1, 11):
-            correct_total = 0
-            total_total = 0
+    def test_recall_K_pool(self, dataset:dict, max_k=1000, cache_path=""):
+        recall = {x: [] for x in range(1, max_k + 1)}
+        self.config.topK = max_k
             
-            self.config.topK = k
+        record_total = {x: [0, 0] for x in range(1, max_k + 1)}
 
-            for binary_name in dataset['data']:
-                for arch1 in ['gcc', 'arm-linux-gnueabi', 'powerpc-linux-gnu', 'mips-linux-gnu']:
-                    for opt1 in ["-O0", "-O1", "-O2", "-O3"]:
-                        try:
-                            print(f"Doing {arch1}{opt1} vs {binary_name}, current {correct_total}/{total_total} = {correct_total/(total_total+1)}")
-                            function_list1 = self.filter_env(dataset['data'][binary_name], arch1, opt1)
-                            function_pool1 = dataset['data'][binary_name]
-                            with torch.no_grad():
-                                correct, total = self.get_test_pairs_pool(function_list1=function_list1, function_pool=function_pool1) 
-                            correct_total += correct
-                            total_total += total
-                        except ValueError:
-                            print("No that Architecture and Opt_level")
-                                
-            recall.append(correct_total / total_total)
-            print(f"recall@{k}: {correct_total / total_total}")
-        print(recall)
+        for binary in dataset['data']:
+
+            function_list1 = self.get_function_name_list(dataset['data'][binary])
+            function_pool1 = dataset['data'][binary]
+            with torch.no_grad():
+                # with open("result.pkl", 'rb') as f:
+
+                result = self.get_test_pairs_pool_embedding(function_list1=function_list1, function_pool=function_pool1, use_cache=cache_path)
+                    
+                for k in range(1, max_k + 1):
+                    correct, total = self.get_recall_score(result, k=k)
+
+                    record_total[k][0] += correct
+                    record_total[k][1] += total
+                                        
+                    recall[k].append(correct / total)
+        
+        avg_recall = []
+        recall_avg = []
+        for k in range(1, max_k + 1):
+            avg_recall.append(record_total[k][0] / record_total[k][1])
+            recall_avg.append(np.mean(recall[k]))
+        
+        print("avg_recall", avg_recall, '\n', "recall_avg", recall_avg, '\n')
         return recall
     
     def test_recall_K_file(self, dataset:dict, max_k: int = 10):
@@ -340,8 +359,8 @@ class InferenceModel:
                             for opt2 in ["-O0", "-O1", "-O2", "-O3"]:
                                 try:
                                     print(f"Doing {arch1}{opt1} vs {arch2}{opt2}, current {correct_total}/{total_total} = {correct_total/(total_total+1)}")
-                                    function_list1 = self.filter_env(dataset['data'][binary_name], arch1, opt1)
-                                    function_list2 = self.filter_env(dataset['data'][binary_name], arch2, opt2)
+                                    function_list1 = self.get_function_name_list(dataset['data'][binary_name], arch1, opt1)
+                                    function_list2 = self.get_function_name_list(dataset['data'][binary_name], arch2, opt2)
                                     with torch.no_grad():
                                         correct, total = self.get_test_pairs(function_list1=function_list1, function_list2=function_list2) 
                                     correct_total += correct
@@ -357,8 +376,6 @@ class InferenceModel:
     def ROC_pair(self, function_list1, function_list2):
         function_set1 = self.get_function_set_embedding(function_list=function_list1)
         function_set2 = self.get_function_set_embedding(function_list=function_list2)
-        # TODO: add ROC and AUC
-        # TODO: Different stratege, by all or by function/arch then take the average?
         function2_name_list = list(function_set2.keys())
         
         function2_embedding = []
@@ -388,8 +405,8 @@ class InferenceModel:
                         for opt2 in opts:
                             try:
 
-                                function_list1 = self.filter_env(dataset['data'][binary_name], arch=arch1, opt=opt1)
-                                function_list2 = self.filter_env(dataset['data'][binary_name], arch=arch2, opt=opt2)
+                                function_list1 = self.get_function_name_list(dataset['data'][binary_name], arch=arch1, opt=opt1)
+                                function_list2 = self.get_function_name_list(dataset['data'][binary_name], arch=arch2, opt=opt2)
                                 with torch.no_grad():
                                     score, label = self.ROC_pair(function_list1=function_list1, function_list2=function_list2)
                                     
@@ -415,8 +432,8 @@ class InferenceModel:
                         for opt2 in opts:
                             try:
 
-                                function_list1 = self.filter_env(dataset['data'][binary_name], arch=arch1, opt=opt1)
-                                function_list2 = self.filter_env(dataset['data'][binary_name], arch=arch2, opt=opt2)
+                                function_list1 = self.get_function_name_list(dataset['data'][binary_name], arch=arch1, opt=opt1)
+                                function_list2 = self.get_function_name_list(dataset['data'][binary_name], arch=arch2, opt=opt2)
                                 with torch.no_grad():
                                     score, label = self.ROC_pair(function_list1=function_list1, function_list2=function_list2)
                                     
@@ -431,16 +448,16 @@ class InferenceModel:
 if __name__ == '__main__':
     model_config = ModelConfig()
     
-    with open("coreutil_dataset/test_binary/core.pkl", 'rb') as f:
+    with open("uboot_dataset/cpg_file/test_set.pkl", 'rb') as f:
         dataset = pickle.load(f)
         f.close()
     
-    model_config.model_path = "last.ckpt"
+    model_config.model_path = "lightning_logs/version_14/checkpoints/last.ckpt"
     model_config.dataset_path = ""
-    model_config.feature_length = dataset['feature_len']
+    model_config.feature_length = 149
     model_config.cuda = True
-    model_config.topK = 10
+    model_config.topK = 50
     model = InferenceModel(model_config)
     
     # model.AUC_average(dataset)
-    model.test_recall_K_file(dataset, max_k=50)
+    model.test_recall_K_pool(dataset, max_k=50, cache_path="./all_embedding.pkl")

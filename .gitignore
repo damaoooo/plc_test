@@ -34,3 +34,5 @@ __pycache__
 *dataset
 *.ckpt
 exp.py
+.ipynb*
+*.ipynb
