@@ -70,7 +70,8 @@ class InferenceModel:
                                    hidden_features=self.config.hidden_features,
                                    alpha=self.config.alpha, dropout=self.config.dropout, n_heads=self.config.n_heads,
                                    output_features=self.config.hidden_features
-                                   ).load_from_checkpoint(self.config.model_path)
+                                   )
+        self.model = self.model.load_from_checkpoint(self.config.model_path)
         if self.config.cuda:
             self.model = self.model.cuda()
         self.model.eval()
@@ -448,16 +449,21 @@ class InferenceModel:
 if __name__ == '__main__':
     model_config = ModelConfig()
     
-    with open("uboot_dataset/cpg_file/test_set.pkl", 'rb') as f:
+    with open("dataset/allstar/mini_data.pkl", 'rb') as f:
         dataset = pickle.load(f)
         f.close()
     
-    model_config.model_path = "lightning_logs/version_14/checkpoints/last.ckpt"
+    model_config.model_path = "lightning_logs/allstar_1/epoch=0-step=319000.ckpt"
     model_config.dataset_path = ""
-    model_config.feature_length = 149
+    model_config.feature_length = 145
+    model_config.max_length = 1500
     model_config.cuda = True
     model_config.topK = 50
     model = InferenceModel(model_config)
     
     # model.AUC_average(dataset)
-    model.test_recall_K_pool(dataset, max_k=50, cache_path="./all_embedding.pkl")
+    res = model.test_recall_K_pool(dataset, max_k=50, cache_path="")
+    data = [res[i] for i in [1, 5, 10, 20, 30, 40, 50]]
+    label = [str(x) for x in [1, 5, 10, 20, 30, 40, 50]]
+    plt.boxplot(data, labels=label)
+    plt.savefig("recall.png")
