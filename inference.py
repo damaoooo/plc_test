@@ -449,7 +449,7 @@ class InferenceModel:
 if __name__ == '__main__':
     model_config = ModelConfig()
     
-    with open("dataset/allstar/mini_data.pkl", 'rb') as f:
+    with open("dataset/allstar/test_set.pkl", 'rb') as f:
         dataset = pickle.load(f)
         f.close()
     
