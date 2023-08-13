@@ -45,3 +45,5 @@ cpg_v0.1.sif
 convert_this.sh
 train_this.sh
 coreutil_handle.sh
+*.pdf
+*.eps
