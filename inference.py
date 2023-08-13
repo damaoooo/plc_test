@@ -316,9 +316,7 @@ class InferenceModel:
     def test_recall_K_pool(self, dataset:dict, max_k=1000, cache_path=""):
         recall = []
         self.config.topK = max_k
-            
-        correct_total = 0
-        total_total = 0
+        
 
         function_list1 = self.filter_env(dataset['data'])
         function_pool1 = dataset['data']
@@ -333,12 +331,9 @@ class InferenceModel:
                 
             for k in range(1, max_k + 1):
                 correct, total = self.get_recall_score(result, k=k)
-
-                correct_total += correct
-                total_total += total
                                     
-                recall.append(correct_total / total_total)
-                print(f"recall@{k}: {correct_total / total_total}")
+                recall.append(correct / total)
+                print(f"recall@{k}: {correct / total}")
         end_time = time.time()
         print(f"Total time: {end_time - start_time}, Total Function: {total_length}, speed: {(end_time - start_time) / total_length} s/func")
         print(recall)
@@ -452,7 +447,7 @@ if __name__ == '__main__':
         dataset = pickle.load(f)
         f.close()
     
-    model_config.model_path = "lightning_logs/version_14/checkpoints/epoch=14-step=35250.ckpt"
+    model_config.model_path = "lightning_logs/uboot_2/epoch=206-step=486450.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 149
     model_config.cuda = True
@@ -460,4 +455,17 @@ if __name__ == '__main__':
     model = InferenceModel(model_config)
     
     # model.AUC_average(dataset)
-    model.test_recall_K_pool(dataset, max_k=100, cache_path="./all_embedding.pkl")
+    res = model.test_recall_K_pool(dataset, max_k=50, cache_path="")
+    
+    with open("recall_uboot.pkl", 'wb') as f:
+        pickle.dump(res, f)
+        f.close()
+        
+    with open("recall_uboot.pkl", 'rb') as f:
+        res = pickle.load(f)
+        f.close()
+        
+    data = [res[i] for i in [1, 5, 10, 20, 30, 40, 50]]
+    label = [str(x) for x in [1, 5, 10, 20, 30, 40, 50]]
+    plt.boxplot(data, labels=label)
+    plt.savefig("recall_uboot.png")
