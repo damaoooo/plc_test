@@ -463,7 +463,12 @@ if __name__ == '__main__':
     
     # model.AUC_average(dataset)
     res = model.test_recall_K_pool(dataset, max_k=50, cache_path="")
+    
+    with open("./recall_allstar.pkl", 'wb') as f:
+        pickle.dump(res, f)
+        f.close()
+    
     data = [res[i] for i in [1, 5, 10, 20, 30, 40, 50]]
     label = [str(x) for x in [1, 5, 10, 20, 30, 40, 50]]
     plt.boxplot(data, labels=label)
-    plt.savefig("recall.png")
+    plt.savefig("recall_allstar.png")
