@@ -42,3 +42,5 @@ result_recall_K
 my_test.py
 *.cpt
 *.slurm
+*.pdf
+*.eps
