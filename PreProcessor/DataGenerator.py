@@ -8,7 +8,7 @@ from .GraphConverter import Converter
 
 
 def purify_cpg_json(cpg_json: dict):
-    return {"adj": cpg_json['adj'], "features": cpg_json['feature']}
+    return {"adj": cpg_json['adj'], "feature": cpg_json['feature']}
 
 
 def split_train_test_set(all_data: dict, ratio=0.1):
@@ -134,9 +134,9 @@ class DataGenerator:
             all_data = self.generate_all_data()
             
             print("Saving the original dataset...")
-            save_pickle(self.wrap_dataset(all_data), os.path.join(self.save_path, 'origin_data.pkl'))
+            save_pickle(all_data, os.path.join(self.save_path, 'origin_data.pkl'))
 
-        
+        # return
         print("Splitting dataset...")
         train_data, test_data = split_train_test_set(all_data)
         train_data = purity_dataset(train_data)
