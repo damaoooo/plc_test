@@ -43,6 +43,7 @@ class Converter:
         self.signTable = {}
 
         self.op_file = op_file
+        self.read_op = read_op
 
         if self.op_file and read_op:
             self.load_op_list(self.op_file)

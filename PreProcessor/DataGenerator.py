@@ -64,11 +64,19 @@ def save_pickle(obj, save_path):
         f.close()
 
 
+def load_pickle(load_path):
+    with open(load_path, 'rb') as f:
+        obj = pickle.load(f)
+        f.close()
+    return obj
+
+
 class DataGenerator:
-    def __init__(self, file_tree: FileTree, converter: Converter, save_path: str):
+    def __init__(self, file_tree: FileTree, converter: Converter, save_path: str, read_cache: bool = False):
         self.file_tree = file_tree
         self.converter = converter
         self.save_path = save_path
+        self.read_cache = read_cache
 
     def operator_walker(self):
         missing_operator = set()
@@ -109,10 +117,26 @@ class DataGenerator:
         return {"data": dataset, "adj": self.converter.max_length, "feature_len": self.converter.length}
 
     def run(self):
-        print("Start to scan operator...")
-        missing = self.operator_walker()
-        print("adding missing operator: ", missing, 'to OP')
-        all_data = self.generate_all_data()
+        
+        if self.converter.read_op:
+            self.converter.load_op_list(self.converter.op_file)
+        else:
+            print("Start to scan operator...")
+            missing = self.operator_walker()
+            print("adding missing operator: ", missing, 'to OP')
+            self.converter.load_op_list(self.converter.op_file)
+        
+        if self.read_cache:
+            print("Reading Cached dataset")
+            all_data = load_pickle(os.path.join(self.save_path, 'origin_data.pkl'))
+        else:
+            print("Generating dataset...")
+            all_data = self.generate_all_data()
+            
+            print("Saving the original dataset...")
+            save_pickle(self.wrap_dataset(all_data), os.path.join(self.save_path, 'origin_data.pkl'))
+
+        
         print("Splitting dataset...")
         train_data, test_data = split_train_test_set(all_data)
         train_data = purity_dataset(train_data)

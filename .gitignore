@@ -39,3 +39,5 @@ exp.py
 *.pdf
 *.eps
 exp.py
+*.pth
+*.tar.gz
