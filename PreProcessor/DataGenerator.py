@@ -215,9 +215,10 @@ class DataGeneratorMultiProcessing(DataGenerator):
             pool.close()
             pool.join()
         self.is_finish.put(True)
-        all_data = reduce_return.get()
+        
         print("Waiting for reducer to finish...")
-
+        all_data = reduce_return.get()
+        
         pbar.close()
         return all_data
 
