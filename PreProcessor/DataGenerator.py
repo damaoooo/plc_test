@@ -182,7 +182,10 @@ class DataGeneratorMultiProcessing(DataGenerator):
                 all_data[binary_name][function_name] = []
 
             all_data[binary_name][function_name].append(cpg_json)
-        return all_data
+        
+        print("Finish reducing, saving the pkl file...")
+        save_pickle(all_data, os.path.join(self.save_path, 'origin_data.pkl'))
+        # return all_data
 
     def generate_data_map(self, file_path, opt, arch, binary):
         cpg_json = self.converter.convert_file(file_path, binary_name=binary, opt=opt, arch=arch)
@@ -204,7 +207,8 @@ class DataGeneratorMultiProcessing(DataGenerator):
         def update(*args):
             pbar.update()
 
-        reduce_return = multiprocessing.Pool(1).apply_async(self.generate_data_reduce)
+        reduce_pool = multiprocessing.Pool(1)
+        reduce_result = reduce_pool.apply_async(self.generate_data_reduce)
 
         with multiprocessing.Pool(self.cores - 1) as pool:
             for file_path, opt, arch, binary in self.file_tree:
@@ -217,7 +221,10 @@ class DataGeneratorMultiProcessing(DataGenerator):
         self.is_finish.put(True)
         
         print("Waiting for reducer to finish...")
-        all_data = reduce_return.get()
+        all_data = reduce_result.get()
+        reduce_pool.close()
+        reduce_pool.join()
+
         
         pbar.close()
         return all_data
