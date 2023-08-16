@@ -35,7 +35,7 @@ class FileTree:
         for opt in self.pool:
             for arch in self.pool[opt]:
                 for binary_name in self.pool[opt][arch]:
-                    count += 1
+                    count += len(os.listdir(self.pool[opt][arch][binary_name]))
         return count
 
 

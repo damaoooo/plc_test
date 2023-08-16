@@ -67,6 +67,14 @@ class Converter:
             pickle.dump(self.OP, f)
             f.close()
 
+    def add_op_to_list(self, op):
+        if isinstance(op, str):
+            self.OP.append(op)
+        elif isinstance(op, list):
+            self.OP.extend(op)
+        elif isinstance(op, set):
+            self.OP.extend(list(op))
+
     def cleanSignTable(self):
         self.signTable = {}
 
@@ -240,14 +248,15 @@ class Converter:
         return hex(int(floatingPointString, 2))
 
     def probe_operator_file(self, file_name: str):
-        G = nx.Graph(pgv.AGraph(file_name))
-        G = G.to_undirected()
+        G = pgv.AGraph(file_name)
+        # G = nx.Graph(G)
+        # G = G.to_undirected()
 
-        if len(G.nodes) < 10 or len(G.nodes) > 1000:
+        if len(G.nodes()) < self.min_length or len(G.nodes()) > self.max_length:
             return
 
-        for nodes in G.nodes:
-            s: str = G.nodes[nodes]['label']
+        for nodes in G.nodes():
+            s: str = G.get_node(nodes).attr['label']
             s = html.unescape(s)
             tpl = s[1:-1].split(',')
             try:
@@ -257,7 +266,12 @@ class Converter:
         return
 
     def convert_file(self, file_name: str, binary_name: str, arch: str, opt: str):
-        G = nx.Graph(pgv.AGraph(file_name))
+        G = pgv.AGraph(file_name)
+
+        if len(G.nodes()) < self.min_length or len(G.nodes()) > self.max_length:
+            return
+
+        G = nx.Graph(G)
 
         function_name = re.sub("_part_\d+", "", G.name)
         function_name = re.sub("_constprop_\d+", "", function_name)
@@ -279,9 +293,6 @@ class Converter:
         end = [x - base for x in end]
         adj = [start, end]
         # adj = np.array(nx.adjacency_matrix(G).todense()).tolist()
-
-        if len(adj[0]) < self.min_length or len(adj[0]) > self.max_length:
-            return
         
         self.signTable = {}
         features = []
