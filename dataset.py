@@ -156,17 +156,17 @@ class ASTGraphDataModule(pl.LightningDataModule):
             data = pickle.load(f)
             f.close()
         feature_len = data['feature_len']
-        adj_len = data['adj_len']
+        adj_len = data['adj']
         data = data['data']
         return adj_len, feature_len, data
 
     def prepare_data(self):
         adj_len, feature_len, train_data = self._load_pickle_data(
-            os.path.join(self.data_path, "total.pkl"))
+            os.path.join(self.data_path, "all_data.pkl"))
 
         # Assume train_set and test_set are the same
         _, _, test_data = self._load_pickle_data(
-            os.path.join(self.data_path, "test_set.pkl"))
+            os.path.join(self.data_path, "test_data.pkl"))
 
         # total_dataset = ASTGraphDataset(data, max_adj=min(adj_len, 1000), feature_len=feature_len, exclude=self.exclude)
 
@@ -187,7 +187,7 @@ class ASTGraphDataModule(pl.LightningDataModule):
 
 if __name__ == "__main__":
     a0 = time.time()
-    p = ASTGraphDataModule(data_path="/opt/li_dataset/cpg_file", pool_size=15, num_workers=2, batch_size=1)
+    p = ASTGraphDataModule(data_path="coreutil_dataset", pool_size=15, num_workers=16, batch_size=1)
     p.prepare_data()
     train = p.train_dataloader()
     idx = 0

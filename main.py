@@ -15,7 +15,7 @@ if __name__ == "__main__":
     
     print("Loading Dataset......")
     pool_size = 1
-    my_dataset = ASTGraphDataModule(batch_size=1, num_workers=1, data_path="/opt/li_dataset/cpg_file", pool_size=pool_size)
+    my_dataset = ASTGraphDataModule(batch_size=1, num_workers=1, data_path="coreutil_dataset", pool_size=pool_size)
     my_dataset.prepare_data()
 
     print("Dataset Loaded. adj length:", my_dataset.max_length, "feature length:", my_dataset.feature_length)
