@@ -302,6 +302,8 @@ class DataGeneratorMultiProcessing(DataGenerator):
             print("Saving the original dataset...")
             all_data = load_pickle(os.path.join(self.save_path, 'origin_data.pkl'))
 
+        all_data = filter_dataset(all_data)
+
         # return
         print("Splitting dataset...")
         train_data, test_data = split_train_test_set(all_data)

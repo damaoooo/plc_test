@@ -14,13 +14,13 @@ if __name__ == "__main__":
     torch.set_float32_matmul_precision('medium')
     
     print("Loading Dataset......")
-    pool_size = 1
+    pool_size = 4
     my_dataset = ASTGraphDataModule(batch_size=1, num_workers=1, data_path="coreutil_dataset", pool_size=pool_size)
     my_dataset.prepare_data()
 
     print("Dataset Loaded. adj length:", my_dataset.max_length, "feature length:", my_dataset.feature_length)
-    my_model = PLModelForAST(adj_length=1500, in_features=my_dataset.feature_length, lr=4e-4, pool_size=pool_size
-                             , alpha=0.2, dropout=0.3, hidden_features=64, n_heads=6, output_features=128).load_from_checkpoint("lightning_logs/version_13/checkpoints/last.ckpt")
+    my_model = PLModelForAST(adj_length=my_dataset.max_length, in_features=my_dataset.feature_length, lr=4e-4, pool_size=pool_size
+                             , alpha=0.2, dropout=0.3, hidden_features=64, n_heads=6, output_features=128)
 
     checkpoint_callback = ModelCheckpoint(save_top_k=3, monitor="val_acc", mode="max",  save_on_train_epoch_end=True, save_last=True)
 
@@ -29,7 +29,8 @@ if __name__ == "__main__":
         precision="16-mixed",
         max_epochs=200,
         # val_check_interval=0.3,
-        callbacks=[checkpoint_callback]
+        callbacks=[checkpoint_callback],
+        logger=None
     )
 
     trainer.fit(model=my_model, train_dataloaders=my_dataset, )
