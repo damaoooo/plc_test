@@ -188,7 +188,6 @@ class DataGeneratorMultiProcessing(DataGenerator):
         
         print("Finish reducing, saving the pkl file...")
         save_pickle(all_data, os.path.join(self.save_path, 'origin_data.pkl'))
-        return all_data
 
     def generate_data_map(self, file_path, opt, arch, binary):
         cpg_json = self.converter.convert_file(file_path, binary_name=binary, opt=opt, arch=arch)
