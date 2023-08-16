@@ -188,7 +188,7 @@ class DataGeneratorMultiProcessing(DataGenerator):
         
         print("Finish reducing, saving the pkl file...")
         save_pickle(all_data, os.path.join(self.save_path, 'origin_data.pkl'))
-        # return all_data
+        return all_data
 
     def generate_data_map(self, file_path, opt, arch, binary):
         cpg_json = self.converter.convert_file(file_path, binary_name=binary, opt=opt, arch=arch)
@@ -211,7 +211,7 @@ class DataGeneratorMultiProcessing(DataGenerator):
             pbar.update()
 
         reduce_pool = multiprocessing.Pool(1)
-        reduce_result = reduce_pool.apply_async(self.generate_data_reduce)
+        reduce_pool.apply_async(self.generate_data_reduce)
 
         with multiprocessing.Pool(self.cores - 1) as pool:
             for file_path, opt, arch, binary in self.file_tree:
@@ -224,13 +224,11 @@ class DataGeneratorMultiProcessing(DataGenerator):
         self.is_finish.put(True)
         
         print("Waiting for reducer to finish...")
-        all_data = reduce_result.get()
+        # all_data = reduce_result.get()
         reduce_pool.close()
         reduce_pool.join()
 
-        
         pbar.close()
-        return all_data
 
     def operator_walker_map(self, file_path):
         try:
@@ -282,3 +280,36 @@ class DataGeneratorMultiProcessing(DataGenerator):
         self.converter.OP = now_operator
         self.converter.save_op_list(self.converter.op_file)
         return list(missing_op)
+
+    def run(self):
+
+        if self.converter.read_op:
+            self.converter.load_op_list(self.converter.op_file)
+        else:
+            print("Start to scan operator...")
+            missing = self.operator_walker()
+            print("adding missing operator: ", missing, 'to OP')
+            self.converter.add_op_to_list(missing)
+            self.converter.save_op_list(self.converter.op_file)
+            self.converter.load_op_list(self.converter.op_file)
+
+        if self.read_cache:
+            print("Reading Cached dataset")
+            all_data = load_pickle(os.path.join(self.save_path, 'origin_data.pkl'))
+        else:
+            print("Generating dataset...")
+            self.generate_all_data()
+
+            print("Saving the original dataset...")
+            all_data = load_pickle(os.path.join(self.save_path, 'origin_data.pkl'))
+
+        # return
+        print("Splitting dataset...")
+        train_data, test_data = split_train_test_set(all_data)
+        train_data = purity_dataset(train_data)
+        all_data = purity_dataset(all_data)
+
+        print("saving dataset...")
+        save_pickle(self.wrap_dataset(all_data), os.path.join(self.save_path, 'all_data.pkl'))
+        save_pickle(self.wrap_dataset(train_data), os.path.join(self.save_path, 'train_data.pkl'))
+        save_pickle(self.wrap_dataset(test_data), os.path.join(self.save_path, 'test_data.pkl'))
