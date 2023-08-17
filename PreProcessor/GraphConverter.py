@@ -293,6 +293,8 @@ class Converter:
         end = [x - base for x in end]
         adj = [start, end]
         # adj = np.array(nx.adjacency_matrix(G).todense()).tolist()
+        if max(adj[0]) >= self.max_length or max(adj[1]) >= self.max_length:
+            return
         
         self.signTable = {}
         features = []
