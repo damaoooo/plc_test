@@ -452,6 +452,12 @@ if __name__ == '__main__':
     with open("dataset/allstar/test_set.pkl", 'rb') as f:
         dataset = pickle.load(f)
         f.close()
+        bad_binary_list = []
+        for binary in dataset['data']:
+            if len(dataset['data'][binary]) < 50:
+                bad_binary_list.append(binary)
+        for binary in bad_binary_list:
+            del dataset['data'][binary]
     
     model_config.model_path = "lightning_logs/allstar_1/epoch=0-step=319000.ckpt"
     model_config.dataset_path = ""
