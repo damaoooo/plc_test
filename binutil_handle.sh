@@ -26,18 +26,19 @@ function compile(){
 
     if [ ${architecture} == "gcc" ] 
     then
-        host=""
+        host="--host=x86_64-linux-gnu"
     else
         host=--host=${architecture}
     fi
 
-    flags="$1 -fno-inline -w"
+    flags="$1 -fno-inline -g -w"
     # git checkout v8.31
     # ./bootstrap
-    make clean
+    make distclean
+    rm ./*/config.cache
     ./configure ${host} "CFLAGS=${flags}"
     # cp ./getopt-cdefs.h.back lib/getopt-cdefs.h
-    make -j20
+    make -j33
 }
 
 function update_path(){
@@ -57,9 +58,15 @@ function update_path(){
 function copy_file(){
     for i in ${core_path}/*
     do
+    
         if [[ -x ${i} ]]; then
             # can't be end with .sh
             if [[ ${i} == *.sh ]]; then
+                continue
+            fi
+
+            # can't be a directory
+            if [[ -d ${i} ]]; then
                 continue
             fi
 
@@ -74,6 +81,10 @@ function copy_file(){
                 continue
             fi
 
+            if [[ ${filename} == *libtool* ]]; then
+                continue
+            fi
+
             cp ${i} ${bin_path}
         fi
     done
@@ -85,6 +96,7 @@ function lift_and_cpg(){
         cd ${bin_path}
         retdec-decompiler ${i} -s -k --backend-keep-library-funcs
         filename=$(basename ${i})
+        llvm-dis ${filename}.bc -o ${filename}.ll
         clang -m32 -O3 -c ${i}.ll -fno-inline-functions -o ${lift_path}/${filename}_re
         cd ${lift_path}
         retdec-decompiler ${lift_path}/${filename}_re -s -k --backend-keep-library-funcs
@@ -97,10 +109,15 @@ function final_clean(){
     rm ${lift_path}/*.dsm
     rm ${lift_path}/*.config.json
     rm ${lift_path}/*.bc
+    rm ${lift_path}/*.cpg
+    rm ${lift_path}/*.ll
+    rm ${lift_path}/*.c
 
     rm ${bin_path}/*.dsm
     rm ${bin_path}/*.config.json
     rm ${bin_path}/*.bc
+    rm ${bin_path}/*.ll
+    rm ${bin_path}/*.c
 }
 
 function merge(){
@@ -133,7 +150,7 @@ do
     do
         compile ${opt} ${arch}
         update_path ${opt} ${arch}
-        # init_clean
+        init_clean
         copy_file
         lift_and_cpg
         final_clean
