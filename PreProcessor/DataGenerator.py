@@ -10,7 +10,7 @@ from .GraphConverter import Converter
 
 
 def purify_cpg_json(cpg_json: dict):
-    return {"adj": cpg_json['adj'], "feature": cpg_json['feature']}
+    return {"adj": cpg_json['adj'], "feature": cpg_json['feature'], "name": cpg_json['name']}
 
 
 def split_train_test_set(all_data: dict, ratio=0.1):
