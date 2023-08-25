@@ -1,7 +1,7 @@
 import torch
 import os
 import pickle
-from lightning.pytorch import Trainer
+from lightning.pytorch import Trainer, seed_everything
 from model import PLModelForAST
 from dataset import ASTGraphDataModule
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -12,6 +12,7 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 
 if __name__ == "__main__":
     torch.set_float32_matmul_precision('medium')
+    seed_everything(1)
     
     print("Loading Dataset......")
     pool_size = 5
@@ -32,5 +33,5 @@ if __name__ == "__main__":
         callbacks=[checkpoint_callback],
         # logger=None
     )
-
+    
     trainer.fit(model=my_model, train_dataloaders=my_dataset, )

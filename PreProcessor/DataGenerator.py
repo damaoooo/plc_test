@@ -4,6 +4,7 @@ import pickle
 from tqdm import tqdm
 import multiprocessing
 import threading
+from sklearn.model_selection import KFold
 
 from .FileScanner import FileTree
 from .GraphConverter import Converter
@@ -14,19 +15,55 @@ def purify_cpg_json(cpg_json: dict):
 
 
 def split_train_test_set(all_data: dict, ratio=0.1):
-    binary_list = list(all_data.keys())
-    test_binary = random.sample(binary_list, int(len(binary_list) * ratio))
+    if len(all_data) > 2:
+        binary_list = list(all_data.keys())
+        test_name = random.sample(binary_list, int(len(binary_list) * ratio))
+        train_set, test_set = split_dataset_based_on_name(all_data, test_name, binary_level=True)
 
-    test_data = {}
-    train_data = {}
+    else:
+        # It means it's the function mode
+        binary_name = list(all_data.keys())[0]
+        function_list = list(all_data[binary_name].keys())
+        test_name = random.sample(function_list, int(len(function_list) * ratio))
+        train_set, test_set = split_dataset_based_on_name(all_data, test_name, binary_level=False)
+        
+    return train_set, test_set
 
-    for binary in all_data:
-        if binary in test_binary:
-            test_data[binary] = all_data[binary]
-        else:
-            train_data[binary] = all_data[binary]
-
-    return train_data, test_data
+def split_dataset_based_on_name(all_data: dict, test_name: list, binary_level=True):
+    if binary_level:
+        train_set = {}
+        test_set = {}
+        
+        for binary in all_data:
+            if binary in test_name:
+                test_set[binary] = all_data[binary]
+            else:
+                train_set[binary] = all_data[binary]
+                
+        return train_set, test_set
+    
+    else:
+        binary_name = list(all_data.keys())[0]
+        train_set = {binary_name: {}}
+        test_set = {binary_name: {}}
+        
+        for function_name in all_data[binary_name]:
+            if function_name in test_name:
+                test_set[binary_name][function_name] = all_data[binary_name][function_name]
+            else:
+                train_set[binary_name][function_name] = all_data[binary_name][function_name]
+                
+        return train_set, test_set
+            
+        
+    
+def KFold_split(all_data: dict, K=10):
+    if len(all_data) > 2:
+        # do the K Fold by binary name
+        binary_list = list(all_data.keys())
+        KFold_splitter = KFold(n_splits=K, shuffle=True)
+        k_folds = KFold_splitter.split(binary_list)
+        
 
 
 def purity_dataset(all_data: dict):
