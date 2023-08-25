@@ -227,7 +227,7 @@ class PLModelForAST(pl.LightningModule):
             
             loss3 = F.cross_entropy(similarity, torch.tensor(self.pool_size, dtype=torch.long).to(device=self.device))
             
-            return (loss1 + loss2 + loss3, F.cosine_similarity(latent_same, latent_sample).item() > F.cosine_similarity(latent_diff, latent_sample).item(),
+            return (loss1 + loss2 + loss3, (loss1 + loss2).item(), F.cosine_similarity(latent_same, latent_sample).item() > F.cosine_similarity(latent_diff, latent_sample).item(),
                     F.cosine_similarity(latent_same, latent_sample).item() - F.cosine_similarity(latent_diff, latent_sample).item())
 
         return (loss1 + loss2, F.cosine_similarity(latent_same, latent_sample).item() > F.cosine_similarity(latent_diff, latent_sample).item(),
@@ -248,22 +248,25 @@ class PLModelForAST(pl.LightningModule):
 
 
     def training_step(self, batch, batch_idx):
-        loss, ok, _ = self.forward(batch)
-        self.log("train_loss", loss.item(), on_step=True, on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
+        loss_all, loss_1v1, ok, _ = self.forward(batch)
+        self.log("train_loss_all", loss_all.item(), on_step=True, on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
+        self.log("train_loss_1v1", loss_1v1, on_step=True, on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
         self.training_step_outputs.append(int(ok))
-        return loss
+        return loss_all
     
     def validation_step(self, batch, batch_idx):
-        loss, ok, diff = self.forward(batch)
-        self.log("val_loss", loss.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
-        self.validation_step_outputs.append([int(ok), diff])
-        return loss
+        loss_all, loss_1v1, ok, diff = self.forward(batch)
+        self.log("val_loss_all", loss_all.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
+        self.validation_step_outputs.append([int(ok), diff, loss_1v1])
+        return loss_all
     
     def on_validation_epoch_end(self):
         acc = np.mean([x[0] for x in self.validation_step_outputs])
         diff = np.mean([x[1] for x in self.validation_step_outputs])
+        loss_1v1 = np.mean([x[2] for x in self.validation_step_outputs])
         self.log("val_acc", acc.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
         self.log("val_diff", diff.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
+        self.log("val_loss_1v1", loss_1v1.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
         self.validation_step_outputs.clear()
         
     def on_train_epoch_end(self):

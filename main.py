@@ -14,8 +14,8 @@ if __name__ == "__main__":
     torch.set_float32_matmul_precision('medium')
     
     print("Loading Dataset......")
-    pool_size = 4
-    my_dataset = ASTGraphDataModule(batch_size=1, num_workers=1, data_path="coreutil_dataset", pool_size=pool_size)
+    pool_size = 5
+    my_dataset = ASTGraphDataModule(batch_size=1, num_workers=8, data_path="/opt/li_dataset/binutils", pool_size=pool_size)
     my_dataset.prepare_data()
 
     print("Dataset Loaded. adj length:", my_dataset.max_length, "feature length:", my_dataset.feature_length)
@@ -30,7 +30,7 @@ if __name__ == "__main__":
         max_epochs=200,
         # val_check_interval=0.3,
         callbacks=[checkpoint_callback],
-        logger=None
+        # logger=None
     )
 
     trainer.fit(model=my_model, train_dataloaders=my_dataset, )

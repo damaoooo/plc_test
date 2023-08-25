@@ -162,7 +162,7 @@ class ASTGraphDataModule(pl.LightningDataModule):
 
     def prepare_data(self):
         adj_len, feature_len, train_data = self._load_pickle_data(
-            os.path.join(self.data_path, "all_data.pkl"))
+            os.path.join(self.data_path, "train_data.pkl"))
 
         # Assume train_set and test_set are the same
         _, _, test_data = self._load_pickle_data(
