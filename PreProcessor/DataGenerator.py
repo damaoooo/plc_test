@@ -1,13 +1,14 @@
 import os
 import random
 import pickle
+import numpy as np
 from tqdm import tqdm
 import multiprocessing
 import threading
 from sklearn.model_selection import KFold
 
-from .FileScanner import FileTree
-from .GraphConverter import Converter
+from FileScanner import FileTree
+from GraphConverter import Converter
 
 
 def purify_cpg_json(cpg_json: dict):
@@ -63,7 +64,20 @@ def KFold_split(all_data: dict, K=10):
         binary_list = list(all_data.keys())
         KFold_splitter = KFold(n_splits=K, shuffle=True)
         k_folds = KFold_splitter.split(binary_list)
-        
+        for train_name, test_name in k_folds:
+            test_name = np.array(binary_list)[test_name]
+            train_set, test_set = split_dataset_based_on_name(all_data, test_name, binary_level=True)
+            yield train_set, test_set
+            
+    else:
+        binary_name = list(all_data.keys())[0]
+        function_list = list(all_data[binary_name].keys())
+        KFold_splitter = KFold(n_splits=K, shuffle=True)
+        k_folds = KFold_splitter.split(function_list)
+        for train_name, test_name in k_folds:
+            test_name = np.array(binary_list)[test_name]
+            train_set, test_set = split_dataset_based_on_name(all_data, test_name, binary_level=False)
+            yield train_set, test_set
 
 
 def purity_dataset(all_data: dict):
@@ -156,7 +170,7 @@ class DataGenerator:
     def wrap_dataset(self, dataset):
         return {"data": dataset, "adj": self.converter.max_length, "feature_len": self.converter.length}
 
-    def run(self):
+    def run(self, k_fold: int = 0):
 
         if self.converter.read_op:
             self.converter.load_op_list(self.converter.op_file)
@@ -181,16 +195,25 @@ class DataGenerator:
         print("filtering lonely dataset...")
         all_data = filter_dataset(all_data)
 
-        # return
-        print("Splitting dataset...")
-        train_data, test_data = split_train_test_set(all_data)
-        train_data = purity_dataset(train_data)
-        all_data = purity_dataset(all_data)
+        if k_fold:
+            print("Splitting dataset...")
+            for i, (train_data, test_data) in enumerate(KFold_split(all_data, K=k_fold)):
+                train_data = purity_dataset(train_data)
+                batch = i+1
+                print("saving dataset {}...".format(batch))
+                save_pickle(self.wrap_dataset(train_data), os.path.join(self.save_path, 'train_data_{}.pkl'.format(batch)))
+                save_pickle(self.wrap_dataset(test_data), os.path.join(self.save_path, 'test_data_{}.pkl'.format(batch)))
+        else:
+            # return
+            print("Splitting dataset...")
+            train_data, test_data = split_train_test_set(all_data)
+            train_data = purity_dataset(train_data)
+            all_data = purity_dataset(all_data)
 
-        print("saving dataset...")
-        save_pickle(self.wrap_dataset(all_data), os.path.join(self.save_path, 'all_data.pkl'))
-        save_pickle(self.wrap_dataset(train_data), os.path.join(self.save_path, 'train_data.pkl'))
-        save_pickle(self.wrap_dataset(test_data), os.path.join(self.save_path, 'test_data.pkl'))
+            print("saving dataset...")
+            save_pickle(self.wrap_dataset(all_data), os.path.join(self.save_path, 'all_data.pkl'))
+            save_pickle(self.wrap_dataset(train_data), os.path.join(self.save_path, 'train_data.pkl'))
+            save_pickle(self.wrap_dataset(test_data), os.path.join(self.save_path, 'test_data.pkl'))
 
 
 class DataGeneratorMultiProcessing(DataGenerator):
@@ -317,7 +340,7 @@ class DataGeneratorMultiProcessing(DataGenerator):
         self.converter.save_op_list(self.converter.op_file)
         return list(missing_op)
 
-    def run(self):
+    def run(self, k_fold: int = 0):
 
         if self.converter.read_op:
             self.converter.load_op_list(self.converter.op_file)
@@ -341,11 +364,21 @@ class DataGeneratorMultiProcessing(DataGenerator):
 
         all_data = filter_dataset(all_data)
 
+
+        if k_fold:
+            print("Splitting dataset...")
+            for i, (train_data, test_data) in enumerate(KFold_split(all_data, K=k_fold)):
+                train_data = purity_dataset(train_data)
+                batch = i+1
+                print("saving dataset {}...".format(batch))
+                save_pickle(self.wrap_dataset(train_data), os.path.join(self.save_path, 'train_data_{}.pkl'.format(batch)))
+                save_pickle(self.wrap_dataset(test_data), os.path.join(self.save_path, 'test_data_{}.pkl'.format(batch)))
+        else:
         # return
-        print("Splitting dataset...")
-        train_data, test_data = split_train_test_set(all_data)
-        train_data = purity_dataset(train_data)
-        all_data = purity_dataset(all_data)
+            print("Splitting dataset...")
+            train_data, test_data = split_train_test_set(all_data)
+            train_data = purity_dataset(train_data)
+            all_data = purity_dataset(all_data)
 
         print("saving dataset...")
         save_pickle(self.wrap_dataset(all_data), os.path.join(self.save_path, 'all_data.pkl'))
