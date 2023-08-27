@@ -41,3 +41,10 @@ exp.py
 exp.py
 *.pth
 *.tar.gz
+*.out
+dcgm
+*.sif
+*.slurm
+*.xlsx
+result_*
+*test.py
