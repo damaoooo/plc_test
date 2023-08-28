@@ -75,7 +75,7 @@ def KFold_split(all_data: dict, K=10):
         KFold_splitter = KFold(n_splits=K, shuffle=True)
         k_folds = KFold_splitter.split(function_list)
         for train_name, test_name in k_folds:
-            test_name = np.array(binary_list)[test_name]
+            test_name = np.array(function_list)[test_name]
             train_set, test_set = split_dataset_based_on_name(all_data, test_name, binary_level=False)
             yield train_set, test_set
 
@@ -182,7 +182,7 @@ class DataGenerator:
             self.converter.save_op_list(self.converter.op_file)
             self.converter.load_op_list(self.converter.op_file)
 
-        if self.read_cache:
+        if self.read_cache and os.path.exists(os.path.join(self.save_path, 'origin_data.pkl')):
             print("Reading Cached dataset")
             all_data = load_pickle(os.path.join(self.save_path, 'origin_data.pkl'))
         else:
@@ -342,7 +342,7 @@ class DataGeneratorMultiProcessing(DataGenerator):
 
     def run(self, k_fold: int = 0):
 
-        if self.converter.read_op:
+        if self.converter.read_op and os.path.exists(self.converter.op_file):
             self.converter.load_op_list(self.converter.op_file)
         else:
             print("Start to scan operator...")
@@ -352,7 +352,7 @@ class DataGeneratorMultiProcessing(DataGenerator):
             self.converter.save_op_list(self.converter.op_file)
             self.converter.load_op_list(self.converter.op_file)
 
-        if self.read_cache:
+        if self.read_cache and os.path.exists(os.path.join(self.save_path, 'origin_data.pkl')):
             print("Reading Cached dataset")
             all_data = load_pickle(os.path.join(self.save_path, 'origin_data.pkl'))
         else:

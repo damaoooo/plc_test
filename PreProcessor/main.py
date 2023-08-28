@@ -6,6 +6,7 @@ from line_profiler import LineProfiler
 import argparse
 import pickle
 import yaml
+import os
 
 @dataclass
 class Config:
@@ -71,9 +72,31 @@ def read_config() -> Config:
         
     return config
 
+
+class OpenPLCScanner(FileScanner):
+    def __init__(self, root_path: str):
+        super().__init__(root_path)
+        
+    def scan(self):
+        for arch_bin in os.listdir(self.root_path):
+
+            # Remove irrelevant directory
+            if '-' not in arch_bin:
+                continue
+
+            arch = arch_bin[:-3]
+            opt_level = arch_bin[-3:]
+
+            binary_name = 'openplc'
+            dot_file_path = os.path.join(self.root_path, arch_bin, 'c_dot')
+            
+            self.file_tree.add_to_tree(binary_name=binary_name, dot_file=dot_file_path, arch=arch, opt=opt_level)
+            
+        return self.file_tree
+
 def main():
     config: Config = read_config()
-    file_tree = FileScanner(root_path=config.root_path).scan()
+    file_tree = OpenPLCScanner(root_path=config.root_path).scan()
     converter = Converter(op_file=config.op_file, read_op=config.read_op, max_length=config.max_length)
     # data_generator = DataGenerator(file_tree=file_tree, save_path='/home/damaoooo/mini_core/', converter=converter, read_cache=False)
     multi_datagen = DataGeneratorMultiProcessing(file_tree=file_tree, save_path=config.save_path, converter=converter, read_cache=config.read_cache)

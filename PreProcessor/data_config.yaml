@@ -2,9 +2,9 @@ max_length: 1000
 k_fold: 5
 
 file_path:
-  op_path: ../coreutil_dataset/op_file.pkl
-  root_path: ../coreutil_dataset
-  save_path: ../coreutil_dataset
+  op_path: ../dataset/openplc/op_file.pkl
+  root_path: ../dataset/openplc
+  save_path: ../dataset/openplc
 
 cache:
   read_op: True

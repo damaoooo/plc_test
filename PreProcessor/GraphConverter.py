@@ -1,6 +1,7 @@
 import html
 import pickle
 import re
+import os
 import cxxfilt
 import networkx as nx
 import numpy as np
@@ -44,7 +45,7 @@ class Converter:
         self.op_file = op_file
         self.read_op = read_op
 
-        if self.op_file and read_op:
+        if self.op_file and read_op and os.path.exists(self.op_file):
             self.load_op_list(self.op_file)
 
         self.max_length = max_length
