@@ -4,7 +4,8 @@ train:
   max_epochs: 100
   batch_size: 1
   num_workers: 8
-  pool_size: 35
+  pool_size: 5
+  k_fold: 1
 
 hyper_parameters:
   lr: 0.0004
@@ -15,5 +16,5 @@ hyper_parameters:
   output_features: 128
 
 path:
-  data_path: /opt/li_dataset/binutils
+  data_path: /opt/li_dataset/openplc
   load_checkpoint: ""

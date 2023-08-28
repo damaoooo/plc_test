@@ -27,6 +27,8 @@ class TrainConfig:
     output_features: int = 128
     load_checkpoint: str = None
     seed: int = 1
+    max_epochs: int = 200
+    k_fold: int = 0
     
 
 def read_yaml_config(config_path: str):
@@ -41,8 +43,10 @@ def parse_args():
     # configuration file
     argparser.add_argument("--config", type=str, default="./train_config.yaml", help="path to configuration file")
     argparser.add_argument("--batch_size", type=int, default=1, help="batch size")
+    argparser.add_argument("--max_epochs", type=int, default=200, help="max epochs")
     argparser.add_argument("--num_workers", type=int, default=8)
     argparser.add_argument("--pool_size", type=int, default=5)
+    argparser.add_argument("--k_fold", type=int, default=0)
     argparser.add_argument("--data_path", type=str, default="/opt/li_dataset/binutils", help="path to dataset, should be the folder")
     argparser.add_argument("--lr", type=float, default=4e-4)
     argparser.add_argument("--alpha", type=float, default=0.2)
@@ -74,6 +78,9 @@ def read_config() -> TrainConfig:
         config.num_workers = yaml_config["train"]["num_workers"]
         config.pool_size = yaml_config["train"]["pool_size"]
         config.seed = yaml_config["train"]["seed"]
+        config.max_epochs = yaml_config["train"]["max_epochs"]
+        config.k_fold = yaml_config["train"]["k_fold"]
+        
     else:
         config.alpha = args.alpha
         config.lr = args.lr
@@ -89,6 +96,13 @@ def read_config() -> TrainConfig:
         config.num_workers = args.num_workers
         config.pool_size = args.pool_size
         config.seed = args.seed
+        
+        config.max_epochs = args.max_epochs
+        config.k_fold = args.k_fold
+        
+    if args.k_fold != 0:
+        config.k_fold = args.k_fold
+        
     return config
 
 if __name__ == "__main__":
@@ -100,7 +114,7 @@ if __name__ == "__main__":
     
     print("Loading Dataset......")
     pool_size = config.pool_size
-    my_dataset = ASTGraphDataModule(batch_size=config.batch_size, num_workers=config.num_workers, data_path=config.data_path, pool_size=pool_size)
+    my_dataset = ASTGraphDataModule(batch_size=config.batch_size, num_workers=config.num_workers, data_path=config.data_path, pool_size=pool_size, k_fold=config.k_fold)
     my_dataset.prepare_data()
 
     print("Dataset Loaded. adj length:", my_dataset.max_length, "feature length:", my_dataset.feature_length)
@@ -115,7 +129,7 @@ if __name__ == "__main__":
         my_model = PLModelForAST(adj_length=my_dataset.max_length, in_features=my_dataset.feature_length, lr=4e-4, pool_size=pool_size
                                 , alpha=0.2, dropout=0.3, hidden_features=64, n_heads=6, output_features=128, seed=random_seed)
 
-    checkpoint_callback = ModelCheckpoint(save_top_k=3, monitor="val_acc", mode="max",  save_on_train_epoch_end=True, save_last=True)
+    checkpoint_callback = ModelCheckpoint(save_top_k=3, monitor="val_loss_all", mode="min",  save_on_train_epoch_end=True, save_last=True)
 
     trainer = Trainer(
         accelerator="gpu",

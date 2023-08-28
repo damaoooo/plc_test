@@ -119,7 +119,7 @@ class ASTGraphDataset(Dataset):
 
 
 class ASTGraphDataModule(pl.LightningDataModule):
-    def __init__(self, data_path: str = "!pairs.pkl", pool_size: int = 0, batch_size: int = 32, num_workers: int = 16, exclude: list = []) -> None:
+    def __init__(self, data_path: str = "!pairs.pkl", pool_size: int = 0, batch_size: int = 32, num_workers: int = 16, exclude: list = [], k_fold: int = 0) -> None:
         super().__init__()
         self.data_path = data_path
 
@@ -135,6 +135,8 @@ class ASTGraphDataModule(pl.LightningDataModule):
 
         self.max_length = -1
         self.feature_length = -1
+        
+        self.k_fold = k_fold
 
     def _load_dataset_info(self, data_path):
         with open(os.path.join(data_path, "metainfo.json"), 'r') as f:
@@ -161,12 +163,18 @@ class ASTGraphDataModule(pl.LightningDataModule):
         return adj_len, feature_len, data
 
     def prepare_data(self):
-        adj_len, feature_len, train_data = self._load_pickle_data(
-            os.path.join(self.data_path, "train_data.pkl"))
+        
+        if self.k_fold:
+            train_path = os.path.join(self.data_path, f"train_data_{self.k_fold}.pkl")
+            test_path = os.path.join(self.data_path, f"test_data_{self.k_fold}.pkl")
+        else:
+            train_path = os.path.join(self.data_path, "train_data.pkl")
+            test_path = os.path.join(self.data_path, "test_data.pkl")
+        
+        adj_len, feature_len, train_data = self._load_pickle_data(train_path)
 
         # Assume train_set and test_set are the same
-        _, _, test_data = self._load_pickle_data(
-            os.path.join(self.data_path, "test_data.pkl"))
+        _, _, test_data = self._load_pickle_data(test_path)
 
         # total_dataset = ASTGraphDataset(data, max_adj=min(adj_len, 1000), feature_len=feature_len, exclude=self.exclude)
 

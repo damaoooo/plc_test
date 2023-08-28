@@ -96,7 +96,8 @@ class OpenPLCScanner(FileScanner):
 
 def main():
     config: Config = read_config()
-    file_tree = OpenPLCScanner(root_path=config.root_path).scan()
+    # file_tree = OpenPLCScanner(root_path=config.root_path).scan()
+    file_tree = FileScanner(root_path=config.root_path).scan()
     converter = Converter(op_file=config.op_file, read_op=config.read_op, max_length=config.max_length)
     # data_generator = DataGenerator(file_tree=file_tree, save_path='/home/damaoooo/mini_core/', converter=converter, read_cache=False)
     multi_datagen = DataGeneratorMultiProcessing(file_tree=file_tree, save_path=config.save_path, converter=converter, read_cache=config.read_cache)
