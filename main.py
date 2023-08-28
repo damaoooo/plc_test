@@ -134,7 +134,7 @@ if __name__ == "__main__":
     trainer = Trainer(
         accelerator="gpu",
         precision="16-mixed",
-        max_epochs=200,
+        max_epochs=config.max_epochs,
         # val_check_interval=0.3,
         callbacks=[checkpoint_callback],
         # logger=None
