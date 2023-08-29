@@ -113,20 +113,20 @@ class SAGPooling(nn.Module):
         adj = self.normalize_adj(adj)
         x = self.gcn(x, adj)
         x = x.view(1, -1)
-        x = F.softmax(x, dim=-1)
+        # x = F.softmax(x, dim=-1)
         x = F.dropout(x, self.dropout, training=self.training)
         return x
 
     def normalize_adj(self, adj):
         """compute L=D^-0.5 * (A+I) * D^-0.5"""
-        adj += torch.eye(adj.shape[0])
+        adj += torch.eye(adj.shape[0]).to(device=adj.device)
         degree = adj.sum(1).to(dtype=torch.float)
         d_hat = torch.diag((degree ** (-0.5)).flatten())
         norm_adj = d_hat @ adj @ d_hat
         return norm_adj
 
 
-class GAT(nn.Module):
+class GAT(pl.LightningModule):
     def __init__(self, in_features, hidden_features, out_features, dropout, alpha, n_heads):
         """Dense version of GAT
         n_heads 表示有几个GAL层，最后进行拼接在一起，类似self-attention
@@ -152,17 +152,18 @@ class GAT(nn.Module):
         return x  # log_softmax速度变快，保持数值稳定
 
 
-class MyModel(nn.Module):
+class MyModel(pl.LightningModule):
     def __init__(self, in_features, adj_length, hidden_features, out_features, dropout, alpha, n_heads):
         super(MyModel, self).__init__()
         self.gat = GAT(in_features, hidden_features, out_features, dropout, alpha, n_heads)
         self.linear1 = nn.Linear(out_features * adj_length, out_features)
-        self.sagPool = SAGPooling(out_features, dropout)
+        # self.sagPool = SAGPooling(out_features, dropout)
         nn.init.xavier_uniform_(self.linear1.weight, gain=1.414)
 
     def forward(self, adj, feature):
         x = self.gat(feature, adj)
         x = F.elu(x)
+        # x = self.sagPool(x, adj)
         x = self.linear1(x.view(1, -1))
 
         # x = F.log_softmax(x, dim=-1)
@@ -250,25 +251,38 @@ class PLModelForAST(pl.LightningModule):
 
 
     def training_step(self, batch, batch_idx):
-        loss_all, loss_1v1, ok, _ = self.forward(batch)
-        self.log("train_loss_all", loss_all.item(), on_step=True, on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
-        self.log("train_loss_1v1", loss_1v1, on_step=True, on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
-        self.training_step_outputs.append(int(ok))
+        if self.pool_size:
+            loss_all, loss_1v1, ok, _ = self.forward(batch)
+            self.log("train_loss_all", loss_all.item(), on_step=True, on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
+            self.log("train_loss_1v1", loss_1v1, on_step=True, on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
+            self.training_step_outputs.append(int(ok))
+        else:
+            loss_all, ok, _ = self.forward(batch)
+            self.log("train_loss_all", loss_all.item(), on_step=True, on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
+            self.training_step_outputs.append(int(ok))
         return loss_all
     
     def validation_step(self, batch, batch_idx):
-        loss_all, loss_1v1, ok, diff = self.forward(batch)
-        self.log("val_loss_all", loss_all.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
-        self.validation_step_outputs.append([int(ok), diff, loss_1v1])
+        if self.pool_size:
+            loss_all, loss_1v1, ok, diff = self.forward(batch)
+            self.log("val_loss_all", loss_all.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
+            self.validation_step_outputs.append([int(ok), diff, loss_1v1])
+        else:
+            loss_all, ok, diff = self.forward(batch)
+            self.log("val_loss_all", loss_all.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
+            self.validation_step_outputs.append([int(ok), diff])
         return loss_all
     
     def on_validation_epoch_end(self):
         acc = np.mean([x[0] for x in self.validation_step_outputs])
-        diff = np.mean([x[1] for x in self.validation_step_outputs])
-        loss_1v1 = np.mean([x[2] for x in self.validation_step_outputs])
         self.log("val_acc", acc.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
+        
+        diff = np.mean([x[1] for x in self.validation_step_outputs])
         self.log("val_diff", diff.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
-        self.log("val_loss_1v1", loss_1v1.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
+        
+        if self.pool_size:
+            loss_1v1 = np.mean([x[2] for x in self.validation_step_outputs])
+            self.log("val_loss_1v1", loss_1v1.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
         self.validation_step_outputs.clear()
         
     def on_train_epoch_end(self):
