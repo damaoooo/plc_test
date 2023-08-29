@@ -1,0 +1,20 @@
+# Hyper-parameter for training
+train:
+  seed: 1
+  max_epochs: 100
+  batch_size: 1
+  num_workers: 8
+  pool_size: 5
+  k_fold: 1
+
+hyper_parameters:
+  lr: 0.0004
+  alpha: 0.2
+  dropout: 0.3
+  hidden_features: 64
+  n_heads: 6
+  output_features: 128
+
+path:
+  data_path: /opt/li_dataset/openplc
+  load_checkpoint: ""
