@@ -170,7 +170,7 @@ class MyModel(nn.Module):
     
 
 class PLModelForAST(pl.LightningModule):
-    def __init__(self, adj_length: int, pool_size: int=0, lr: float=5e-5, in_features=64, hidden_features=128, output_features=64, n_heads=4, dropout=0.6, alpha=0.2, seed=1):
+    def __init__(self, adj_length: int, pool_size: int=0, lr: float=5e-5, in_features=64, hidden_features=128, output_features=64, n_heads=4, dropout=0.6, alpha=0.2, seed=1, data_path=''):
         super().__init__()
         self.lr = lr
         self.pool_size= pool_size
@@ -189,6 +189,7 @@ class PLModelForAST(pl.LightningModule):
         self.my_model = torch.compile(self.my_model)
         self.validation_step_outputs = []
         self.training_step_outputs = []
+        self.data_path = data_path
         self.save_hyperparameters()
 
     def forward(self, x):

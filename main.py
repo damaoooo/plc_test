@@ -123,11 +123,11 @@ if __name__ == "__main__":
     if load_checkpoint:
         print("Loading Checkpoint......")
         my_model = PLModelForAST(adj_length=my_dataset.max_length, in_features=my_dataset.feature_length, lr=4e-4, pool_size=pool_size
-                             , alpha=0.2, dropout=0.3, hidden_features=64, n_heads=6, output_features=128, seed=random_seed).load_from_checkpoint(load_checkpoint)
+                             , alpha=0.2, dropout=0.3, hidden_features=64, n_heads=6, output_features=128, seed=random_seed, data_path=config.data_path + str(config.k_fold)).load_from_checkpoint(load_checkpoint)
         print("Checkpoint Loaded.")
     else:
         my_model = PLModelForAST(adj_length=my_dataset.max_length, in_features=my_dataset.feature_length, lr=4e-4, pool_size=pool_size
-                                , alpha=0.2, dropout=0.3, hidden_features=64, n_heads=6, output_features=128, seed=random_seed)
+                                , alpha=0.2, dropout=0.3, hidden_features=64, n_heads=6, output_features=128, seed=random_seed, data_path=config.data_path + str(config.k_fold))
 
     checkpoint_callback = ModelCheckpoint(save_top_k=3, monitor="val_loss_all", mode="min",  save_on_train_epoch_end=True, save_last=True)
 
