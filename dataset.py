@@ -25,6 +25,7 @@ class ASTGraphDataset(Dataset):
         self.max_adj = max_adj
         self.feature_len = feature_len
         self.pool_size = pool_size
+        self.eye = torch.eye(self.max_adj)
         
 
     def __len__(self):
@@ -105,7 +106,7 @@ class ASTGraphDataset(Dataset):
         adj_matrix[start, end] = 1
 
         adj_matrix = (adj_matrix + adj_matrix.T)
-        adj_matrix += torch.eye(self.max_adj)
+        adj_matrix += self.eye
 
         # For padding
         feature_padder = torch.nn.ZeroPad2d(

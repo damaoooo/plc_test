@@ -17,7 +17,6 @@ import queue
 from multiprocessing.pool import ThreadPool
 import threading
 
-
 def get_cos_similar_multi(v1, v2):
     num = np.dot([v1], v2.T)  # 向量点乘
     denom = np.linalg.norm(v1) * np.linalg.norm(v2)  # 求模长的乘积
@@ -81,6 +80,12 @@ class InferenceModel:
         self.model = self.model.load_from_checkpoint(self.config.model_path)
 
         self.pool_size = multiprocessing.cpu_count()
+        if self.config.cuda:
+            self.device_name = 'cuda'
+        else:
+            self.device_name = 'cpu'
+        self.eye = torch.eye(self.max_length, device=self.device_name)
+        self.zero = torch.zeros([self.max_length, self.max_length], device=self.device_name)
 
         if self.config.cuda:
             self.model = self.model.cuda()
@@ -156,9 +161,10 @@ class InferenceModel:
     def get_single_function_embedding(self, dicts: dict) -> Tuple[str, FunctionEmbedding]:
         with torch.no_grad():
             tfeature, tadj, name = self.to_tensor(dicts)
-            tembedding = self.model.my_model(tadj, tfeature).detach().cpu()
+            tembedding = self.model.my_model(tadj, tfeature)
+            tembedding = tembedding.detach().cpu()
             
-            embedding = tembedding.clone().numpy()
+            embedding = tembedding.numpy()
             del tembedding
             
             # adj = tadj.detach().cpu().clone().numpy()
@@ -174,22 +180,22 @@ class InferenceModel:
         feature = json_dict['feature']
         name = json_dict['name']
 
-        feature = torch.FloatTensor(feature)
-        adj_matrix = torch.zeros([self.max_length, self.max_length])
-        start = torch.tensor(adj[0])
-        end = torch.tensor(adj[1])
+
+        feature = torch.tensor(feature, dtype=torch.float, device=self.device_name)
+        # print(feature.shape)
+        adj_matrix = torch.zeros_like(self.zero, device=self.device_name)
+        start = torch.tensor(adj[0], device=self.device_name)
+        end = torch.tensor(adj[1], device=self.device_name)
         adj_matrix[start, end] = 1
 
         adj_matrix = (adj_matrix + adj_matrix.T)
-        adj_matrix += torch.eye(self.max_length)
+        adj_matrix += self.eye
 
         # For padding
         feature_padder = torch.nn.ZeroPad2d([0, self.feature_length - feature.shape[1], 0, self.max_length - feature.shape[0]])
-        feature = feature_padder(feature)[:self.max_length][:, :self.feature_length]
-
-        if self.config.cuda:
-            feature = feature.to(device='cuda')
-            adj_matrix = adj_matrix.to(device='cuda')
+        # feature = feature_padder(feature)[:self.max_length][:, :self.feature_length]
+        feature = feature_padder(feature)
+        # print("After: ", feature.shape)
 
         return feature, adj_matrix, name
     
@@ -440,9 +446,10 @@ class InferenceModel:
                         is_correct = self.judge(name, [x[1] for x in rank_list[:k]])
                         record_total[k][0] += int(is_correct)
                         record_total[k][1] += 1
-                        
+
             for k in range(1, max_k + 1):
                 recall[k].append(record_total[k][0] / record_total[k][1])
+            return 
         
         avg_recall = []
         recall_avg = []
@@ -578,7 +585,6 @@ if __name__ == '__main__':
     
     # model.AUC_average(dataset)
     res = model.test_recall_K_file(dataset, max_k=50)
-    
     # with open("./recall_allstar.pkl", 'wb') as f:
     #     pickle.dump(res, f)
     #     f.close()
