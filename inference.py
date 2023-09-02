@@ -77,7 +77,7 @@ class InferenceModel:
                                    alpha=self.config.alpha, dropout=self.config.dropout, n_heads=self.config.n_heads,
                                    output_features=self.config.hidden_features
                                    )
-        self.model = self.model.load_from_checkpoint(self.config.model_path)
+        self.model = self.model.load_from_checkpoint(self.config.model_path, strict=False)
 
         self.pool_size = multiprocessing.cpu_count()
         if self.config.cuda:
@@ -565,7 +565,7 @@ if __name__ == '__main__':
 
     model_config = ModelConfig()
     
-    with open("/opt/li_dataset/coreutil/test_data_1.pkl", 'rb') as f:
+    with open("coreutil_dataset/test_data_1.pkl", 'rb') as f:
         dataset = pickle.load(f)
         f.close()
         # bad_binary_list = []
@@ -575,7 +575,7 @@ if __name__ == '__main__':
         # for binary in bad_binary_list:
         #     del dataset['data'][binary]
     
-    model_config.model_path = "lightning_logs/version_10/checkpoints/last.ckpt"
+    model_config.model_path = "checkpoint/coreutils/checkpoints/last.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 151
     model_config.max_length = 1000
