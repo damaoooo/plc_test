@@ -146,7 +146,7 @@ class InferenceModel:
     def get_function_set_embedding(self, function_list: List[dict]):
         function_set: Dict[str, FunctionEmbedding] = {}
         for figure in function_list:
-            name, embedding = self.get_single_function_embedding(figure)
+            name, embedding = figure['name'], FunctionEmbedding(name=figure['name'], embedding=figure['embedding'])
             function_set[name] = embedding
         return function_set
     
@@ -155,7 +155,7 @@ class InferenceModel:
         name_list = []
         for function_name in function_list:
             for function_body in function_list[function_name]:
-                name, embedding = self.get_single_function_embedding(function_body)
+                name, embedding = function_body['name'], FunctionEmbedding(name=function_body['name'], embedding=function_body['embedding'])
                 function_result_list.append(embedding)
                 name_list.append(name)
         return name_list, function_result_list
@@ -302,14 +302,15 @@ class InferenceModel:
         return False
     
     # @profile
-    def test_recall_K_pool(self, dataset:dict, max_k=1000, cache_path=""):
+    def test_recall_K_pool(self, dataset:dict, graph: list, max_k=1000, cache_path=""):
         recall = {x: [] for x in range(1, max_k + 1)}
         self.config.topK = max_k
             
         record_total = {x: [0, 0] for x in range(1, max_k + 1)}
-
+        dataset = self.merge_dgl_dict(dataset, graph)
+        
         pbar = tqdm(total=len(dataset['data']))
-
+        pbar.set_description("Testing Recall")
         for binary in dataset['data']:
 
             function_list1 = self.get_function_name_list(dataset['data'][binary])
@@ -595,7 +596,7 @@ if __name__ == '__main__':
 
     model_config = ModelConfig()
     
-    with open("dataset/openplc/index_test_data_1.pkl", 'rb') as f:
+    with open("dataset/openplc/index_test_data_5.pkl", 'rb') as f:
         dataset = pickle.load(f)
         f.close()
         # bad_binary_list = []
@@ -607,16 +608,18 @@ if __name__ == '__main__':
     
     graphs, _ = dgl.load_graphs("dataset/openplc/dgl_graphs.dgl")
 
-    model_config.model_path = "lightning_logs/version_6/checkpoints/epoch=96-step=7178.ckpt"
+    model_config.model_path = "checkpoint/openplc/version_10/checkpoints/epoch=95-step=7200.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 141
     model_config.max_length = 1000
     model_config.cuda = True
-    model_config.topK = 50
+    model_config.topK = 10
     model = InferenceModel(model_config)
     
     # model.AUC_average(dataset)
-    res = model.test_recall_K_file(dataset, graphs, max_k=50)
+    res = model.test_recall_K_file(dataset, graphs, max_k=10)
+    # res = model.test_recall_K_pool(dataset, graphs, max_k=10)
+    
     # with open("./recall_allstar.pkl", 'wb') as f:
     #     pickle.dump(res, f)
     #     f.close()

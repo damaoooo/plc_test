@@ -97,9 +97,8 @@ class PLModelForAST(pl.LightningModule):
         loss1 = F.cosine_embedding_loss(latent_same, latent_sample, label + 1)
         loss2 = F.cosine_embedding_loss(latent_sample, latent_diff, label - 1)
         
-        pool_latents = []
-        
         if self.pool_size:
+            pool_latents = []
             for k in pool:
                 pool_latent = self.my_model(k)
                 # use softmax for the pool
