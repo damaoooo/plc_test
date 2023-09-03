@@ -10,6 +10,9 @@ from sklearn.model_selection import KFold
 from FileScanner import FileTree
 from GraphConverter import Converter
 
+import dgl
+import torch
+
 
 def purify_cpg_json(cpg_json: dict):
     return {"adj": cpg_json['adj'], "feature": cpg_json['feature'], "name": cpg_json['name']}
@@ -147,25 +150,32 @@ class DataGenerator:
         return list(missing_operator)
 
     def generate_all_data(self):
-        all_data = {}
+        all_data_index = {}
+        graph_list = []
         pbar = tqdm(total=len(self.file_tree))
         for file_path, opt, arch, binary in self.file_tree:
-            if binary not in all_data:
-                all_data[binary] = {}
+            if binary not in all_data_index:
+                all_data_index[binary] = {}
             for c_dot_file in os.listdir(file_path):
                 pbar.update()
                 c_dot_filename = os.path.join(file_path, c_dot_file)
-                cpg_json = self.converter.convert_file(c_dot_filename, binary_name=binary, opt=opt, arch=arch)
+                info = self.converter.convert_file(c_dot_filename, binary_name=binary, opt=opt, arch=arch)
 
-                if not cpg_json:
+                if not info:
                     continue
+                
+                info, G = info
 
-                function_name = cpg_json['name']
-                if function_name not in all_data[binary]:
-                    all_data[binary][function_name] = []
-                all_data[binary][function_name].append(cpg_json)
+                graph_list.append(G)
+                index = len(graph_list) - 1
 
-        return all_data
+                function_name = info['name']
+                info['index'] = index
+                if function_name not in all_data_index[binary]:
+                    all_data_index[binary][function_name] = []
+                all_data_index[binary][function_name].append(info)
+
+        return all_data_index, graph_list
 
     def wrap_dataset(self, dataset):
         return {"data": dataset, "adj": self.converter.max_length, "feature_len": self.converter.length}
@@ -227,34 +237,46 @@ class DataGeneratorMultiProcessing(DataGenerator):
         self.is_finish: multiprocessing.Queue = multiprocessing.Manager().Queue(1)
 
     def generate_data_reduce(self):
-        all_data = {}
+        all_data_index = {}
+        all_graph = []
         while True:
             if (not self.is_finish.empty()) and self.convert_queue.empty():
                 self.is_finish.get()
                 break
             if self.convert_queue.empty():
                 continue
-            cpg_json, binary_name = self.convert_queue.get()
+            info, graph = self.convert_queue.get()
 
-            function_name = cpg_json['name']
+            function_name = info['name']
+            binary_name = info['binary']
+            
+            all_graph.append(graph)
 
-            if binary_name not in all_data:
-                all_data[binary_name] = {}
+            if binary_name not in all_data_index:
+                all_data_index[binary_name] = {}
 
-            if function_name not in all_data[binary_name]:
-                all_data[binary_name][function_name] = []
-
-            all_data[binary_name][function_name].append(cpg_json)
+            if function_name not in all_data_index[binary_name]:
+                all_data_index[binary_name][function_name] = []
+            
+            all_graph.append(graph)
+            index = len(all_graph) - 1
+            info['index'] = index
+            all_data_index[binary_name][function_name].append(info)
         
-        print("Finish reducing, saving the pkl file...")
-        save_pickle(all_data, os.path.join(self.save_path, 'origin_data.pkl'))
+        print("Finish reducing, saving the dgl file...")
+        dgl.save_graphs(os.path.join(self.save_path, 'origin_graphs.dgl'), all_graph)
+        
+        print("Finish reducing, saving the index file")
+        with open(os.path.join(self.save_path, 'origin_data_index.pkl'), 'wb') as f:
+            pickle.dump(all_data_index, f)
+            f.close()
 
     def generate_data_map(self, file_path, opt, arch, binary):
         cpg_json = self.converter.convert_file(file_path, binary_name=binary, opt=opt, arch=arch)
         if not cpg_json:
             return None
         else:
-            self.convert_queue.put((cpg_json, binary))
+            self.convert_queue.put(cpg_json)
 
     def generate_all_data(self):
 

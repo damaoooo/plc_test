@@ -575,12 +575,12 @@ if __name__ == '__main__':
         # for binary in bad_binary_list:
         #     del dataset['data'][binary]
     
-    model_config.model_path = "checkpoint/coreutils/checkpoints/last.ckpt"
+    model_config.model_path = "checkpoint/coreutils/version_10/checkpoints/last.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 151
     model_config.max_length = 1000
     model_config.cuda = True
-    model_config.topK = 10
+    model_config.topK = 50
     model = InferenceModel(model_config)
     
     # model.AUC_average(dataset)
