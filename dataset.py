@@ -232,7 +232,7 @@ class ASTGraphDataModule(pl.LightningDataModule):
             dataset=self.train_set,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            pin_memory=False,
+            pin_memory=True,
             collate_fn=collate_fn
         )
 

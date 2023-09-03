@@ -20,7 +20,7 @@ from dgl.nn.pytorch.glob import Set2Set
 
 
 class MyModel(nn.Module):
-    def __init__(self, in_feature: int, hidden_feature: int, out_feature: int, num_heads: int, dropout: float, alpha: float):
+    def __init__(self, in_feature: int, hidden_feature: int, out_feature: int, num_heads: int, dropout: float, alpha: float, adj_len: int):
         super().__init__()
         
         self.in_feature = in_feature
@@ -29,13 +29,15 @@ class MyModel(nn.Module):
         self.num_heads = num_heads
         self.dropout = dropout
         self.alpha = alpha
+        self.adj_len = adj_len
         
         self.conv1 = GATv2Conv(in_feats=self.in_feature, out_feats=self.hidden_feature, num_heads=self.num_heads, 
                                feat_drop=self.dropout, attn_drop=self.dropout, negative_slope=self.alpha)
         self.conv2 = GATv2Conv(in_feats=self.hidden_feature * self.num_heads, out_feats=self.hidden_feature, num_heads=1, 
                                feat_drop=self.dropout, attn_drop=self.dropout, negative_slope=self.alpha)
-        # self.nlp = nn.Linear(64*1000, 128)
-        self.read_out = Set2Set(self.hidden_feature, n_iters=3, n_layers=3)
+        self.nlp = nn.Linear(self.hidden_feature * self.adj_len, 128)
+        # self.read_out = Set2Set(self.hidden_feature, n_iters=3, n_layers=3)
+        
         
     def forward(self, g):
         h = g.ndata['feat']
@@ -46,7 +48,7 @@ class MyModel(nn.Module):
         h = self.conv2(g, h)
         h = h.squeeze(-2)
         h = F.elu(h)
-        h = self.read_out(g, h)
+        h = self.nlp(h.view(1, -1))
         return h
 
     
@@ -68,7 +70,7 @@ class PLModelForAST(pl.LightningModule):
     #     alpha = config['alpha']
     #     dropout = config['dropout']
         self.seed = seed
-        self.my_model = MyModel(in_feature=in_features, hidden_feature=hidden_features, out_feature=output_features, num_heads=n_heads, dropout=dropout, alpha=alpha)
+        self.my_model = MyModel(in_feature=in_features, hidden_feature=hidden_features, out_feature=output_features, num_heads=n_heads, dropout=dropout, alpha=alpha, adj_len=self.adj_length)
         # self.my_model = torch.compile(self.my_model)
         self.validation_step_outputs = []
         self.training_step_outputs = []

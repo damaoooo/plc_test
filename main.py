@@ -11,7 +11,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:100"
 os.environ["LD_LIBRARY_PATH"] = "/usr/local/cuda-11.7/lib64"
-torch.multiprocessing.set_sharing_strategy('file_system')
+# torch.multiprocessing.set_sharing_strategy('file_system')
 
 @dataclass
 class TrainConfig:

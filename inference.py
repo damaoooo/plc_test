@@ -17,6 +17,8 @@ import queue
 from multiprocessing.pool import ThreadPool
 import threading
 
+import dgl
+
 def get_cos_similar_multi(v1, v2):
     num = np.dot([v1], v2.T)  # 向量点乘
     denom = np.linalg.norm(v1) * np.linalg.norm(v2)  # 求模长的乘积
@@ -198,6 +200,19 @@ class InferenceModel:
         # print("After: ", feature.shape)
 
         return feature, adj_matrix, name
+    
+    def single_dgl_to_embedding(self, data: dgl.DGLGraph):
+        with torch.no_grad():
+            if self.config.cuda:
+                data = data.to('cuda')
+            tembedding = self.model.my_model(data)
+            tembedding = tembedding.detach().cpu()
+            
+            embedding = tembedding.numpy()
+            del tembedding
+            
+            return embedding
+        
     
     @torch.no_grad()
     def get_test_pairs_pool_embedding(self, function_list1: List, function_pool: Dict, use_cache=""):
@@ -408,10 +423,25 @@ class InferenceModel:
 
         print("recall_avg", 0, '\n')
     
+    def merge_dgl_dict(self, dataset: dict, graphs: List[dgl.DGLGraph]):
+        pbar = tqdm(total=self.get_dataset_function_num(dataset))
+        pbar.set_description("Converting DGL to Embedding")
+        
+        for binary in dataset['data']:
+            for function_name in dataset['data'][binary]:
+                for i in range(len(dataset['data'][binary][function_name])):
+                    index = dataset['data'][binary][function_name][i]['index']
+                    embedding = self.single_dgl_to_embedding(graphs[index])
+                    dataset['data'][binary][function_name][i]['embedding'] = embedding
+                    pbar.update()
+        return dataset
+    
     # @profile
-    def test_recall_K_file(self, dataset:dict, max_k: int = 10):
+    def test_recall_K_file(self, dataset:dict, graph: list, max_k: int = 10):
         recall = {x: [] for x in range(1, max_k + 1)}
         self.config.topK = max_k
+        
+        dataset = self.merge_dgl_dict(dataset, graph)
                 
         pbar = tqdm(total=self.get_dataset_function_num(dataset))
         
@@ -430,7 +460,7 @@ class InferenceModel:
                     if (arch, opt) not in candidate_pool:
                         continue
                     
-                    name, query_embedding = self.get_single_function_embedding(function_body)
+                    name, query_embedding = function_body['name'], FunctionEmbedding(name=function_body['name'], embedding=function_body['embedding'])
                     query_embedding: FunctionEmbedding
                     query_embedding = query_embedding.embedding
                     
@@ -449,7 +479,7 @@ class InferenceModel:
 
             for k in range(1, max_k + 1):
                 recall[k].append(record_total[k][0] / record_total[k][1])
-            return 
+            # return 
         
         avg_recall = []
         recall_avg = []
@@ -471,7 +501,7 @@ class InferenceModel:
                     candidate_pool[(arch, opt)] = []
                     candidate_name_pool[(arch, opt)] = []
                     
-                name, embedding = self.get_single_function_embedding(function_body)
+                name, embedding = function_body['name'], FunctionEmbedding(name=function_body['name'], embedding=function_body['embedding'])
                 candidate_pool[(arch, opt)].append(embedding)
                 candidate_name_pool[(arch, opt)].append(name)
                 count += 1
@@ -565,7 +595,7 @@ if __name__ == '__main__':
 
     model_config = ModelConfig()
     
-    with open("coreutil_dataset/test_data_1.pkl", 'rb') as f:
+    with open("dataset/openplc/index_test_data_1.pkl", 'rb') as f:
         dataset = pickle.load(f)
         f.close()
         # bad_binary_list = []
@@ -575,16 +605,18 @@ if __name__ == '__main__':
         # for binary in bad_binary_list:
         #     del dataset['data'][binary]
     
-    model_config.model_path = "checkpoint/coreutils/version_10/checkpoints/last.ckpt"
+    graphs, _ = dgl.load_graphs("dataset/openplc/dgl_graphs.dgl")
+
+    model_config.model_path = "lightning_logs/version_6/checkpoints/epoch=96-step=7178.ckpt"
     model_config.dataset_path = ""
-    model_config.feature_length = 151
+    model_config.feature_length = 141
     model_config.max_length = 1000
     model_config.cuda = True
     model_config.topK = 50
     model = InferenceModel(model_config)
     
     # model.AUC_average(dataset)
-    res = model.test_recall_K_file(dataset, max_k=50)
+    res = model.test_recall_K_file(dataset, graphs, max_k=50)
     # with open("./recall_allstar.pkl", 'wb') as f:
     #     pickle.dump(res, f)
     #     f.close()
