@@ -56,6 +56,7 @@ class PLModelForAST(pl.LightningModule):
         super().__init__()
         self.lr = lr
         self.pool_size= pool_size
+        self.adj_length = adj_length
     # def __init__(self, config) -> None:
     #     super().__init__()
     #     self.lr = config['lr']
@@ -67,42 +68,38 @@ class PLModelForAST(pl.LightningModule):
     #     alpha = config['alpha']
     #     dropout = config['dropout']
         self.seed = seed
-        self.my_model = MyModel(in_features=in_features, hidden_features=hidden_features, out_features=output_features, n_heads=n_heads, dropout=dropout, adj_length=adj_length, alpha=alpha)
-        self.my_model = torch.compile(self.my_model)
+        self.my_model = MyModel(in_feature=in_features, hidden_feature=hidden_features, out_feature=output_features, num_heads=n_heads, dropout=dropout, alpha=alpha)
+        # self.my_model = torch.compile(self.my_model)
         self.validation_step_outputs = []
         self.training_step_outputs = []
         self.data_path = data_path
         self.save_hyperparameters()
 
     def forward(self, x):
+        x = x[0]
         if self.pool_size:
-            sample, same, diff, label, pool = x
+            sample, same, diff, label, pool = x['sample'], x['same_sample'], x['different_sample'], x['label'], x['pool']
         else:
-            sample, same, diff, label = x
-
-        sample_feature, sample_adj = sample
-        same_feature, same_adj = same
-        diff_feature, diff_adj = diff
+            sample, same, diff, label = x['sample'], x['same_sample'], x['different_sample'], x['label']
 
         seq = [1, 2, 3]
         random.shuffle(seq)
         for s in seq:
             if s == 1:
-                latent_sample = self.my_model(sample_adj.squeeze(0), sample_feature.squeeze(0))
+                latent_sample = self.my_model(sample)
             elif s == 2:
-                latent_same = self.my_model(same_adj.squeeze(0), same_feature.squeeze(0))
+                latent_same = self.my_model(same)
             else:
-                latent_diff = self.my_model(diff_adj.squeeze(0), diff_feature.squeeze(0))
+                latent_diff = self.my_model(diff)
 
-        loss1 = F.cosine_embedding_loss(latent_same, latent_sample, label[0] + 1)
-        loss2 = F.cosine_embedding_loss(latent_sample, latent_diff, label[0] - 1)
+        loss1 = F.cosine_embedding_loss(latent_same, latent_sample, label + 1)
+        loss2 = F.cosine_embedding_loss(latent_sample, latent_diff, label - 1)
         
         pool_latents = []
         
         if self.pool_size:
             for k in pool:
-                pool_feature, pool_adj = k
-                pool_latent = self.my_model(pool_adj.squeeze(0), pool_feature.squeeze(0))
+                pool_latent = self.my_model(k)
                 # use softmax for the pool
                 pool_latents.append(pool_latent)
             pool_latents.append(latent_same)

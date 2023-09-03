@@ -3,8 +3,8 @@ train:
   seed: 1
   max_epochs: 100
   batch_size: 1
-  num_workers: 8
-  pool_size: 5
+  num_workers: 32
+  pool_size: 50
   k_fold: 1
 
 hyper_parameters:
@@ -16,5 +16,5 @@ hyper_parameters:
   output_features: 128
 
 path:
-  data_path: /opt/li_dataset/openplc
+  data_path: /home/damaoooo/Project/plc/dataset/openplc
   load_checkpoint: ""

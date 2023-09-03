@@ -10,6 +10,8 @@ from sklearn.model_selection import KFold
 from FileScanner import FileTree
 from GraphConverter import Converter
 
+import dgl
+import torch
 
 def purify_cpg_json(cpg_json: dict):
     return {"adj": cpg_json['adj'], "feature": cpg_json['feature'], "name": cpg_json['name']}
@@ -125,6 +127,51 @@ def load_pickle(load_path):
     return obj
 
 
+def dataset_size(dataset: dict):
+    size = 0
+    for binary in dataset:
+        for function in dataset[binary]:
+            size += len(dataset[binary][function])
+    return size
+
+def apply_dgl(dataset: dict, save_path: str):
+    file_index = {}
+    dgl_array = []
+    
+    pbar = tqdm(total=dataset_size(dataset))
+    pbar.set_description("Converting the dataset to dgl")
+    
+    for binary_name in dataset:
+        if binary_name not in file_index:
+            file_index[binary_name] = {}
+        
+        for function_name in dataset[binary_name]:
+            if function_name not in file_index[binary_name]:
+                file_index[binary_name][function_name] = []
+                
+            for function_body in dataset[binary_name][function_name]:
+                graph = dgl.graph((function_body['adj'][0], function_body['adj'][1]))
+                graph = dgl.to_bidirected(graph)
+                graph = dgl.add_self_loop(graph)
+                graph.ndata['feat'] = torch.tensor(function_body['feature'], dtype=torch.float)
+                del function_body['adj']
+                del function_body['feature']
+                index = len(dgl_array)
+                dgl_array.append(graph)
+                
+                function_body['index'] = index
+                file_index[binary_name][function_name].append(function_body)
+                pbar.update()
+    
+    # pbar.close()
+    print(f"Finish converting, saving the dgl to {os.path.join(save_path, 'dgl_graphs.pkl')} and index file to {os.path.join(save_path, 'total_index.pkl')}")
+    dgl.save_graphs(os.path.join(save_path, 'dgl_graphs.dgl'), dgl_array)
+    with open(os.path.join(save_path, 'total_index.pkl'), 'wb') as f:
+        pickle.dump(file_index, f)
+        f.close()
+    return file_index
+
+
 class DataGenerator:
     def __init__(self, file_tree: FileTree, converter: Converter, save_path: str, read_cache: bool = False):
         self.file_tree = file_tree
@@ -194,26 +241,23 @@ class DataGenerator:
 
         print("filtering lonely dataset...")
         all_data = filter_dataset(all_data)
+        all_data = apply_dgl(all_data, self.save_path)
 
         if k_fold:
             print("Splitting dataset...")
             for i, (train_data, test_data) in enumerate(KFold_split(all_data, K=k_fold)):
-                train_data = purity_dataset(train_data)
                 batch = i+1
                 print("saving dataset {}...".format(batch))
-                save_pickle(self.wrap_dataset(train_data), os.path.join(self.save_path, 'train_data_{}.pkl'.format(batch)))
-                save_pickle(self.wrap_dataset(test_data), os.path.join(self.save_path, 'test_data_{}.pkl'.format(batch)))
+                save_pickle(self.wrap_dataset(train_data), os.path.join(self.save_path, 'index_train_data_{}.pkl'.format(batch)))
+                save_pickle(self.wrap_dataset(test_data), os.path.join(self.save_path, 'index_test_data_{}.pkl'.format(batch)))
         else:
             # return
             print("Splitting dataset...")
             train_data, test_data = split_train_test_set(all_data)
-            train_data = purity_dataset(train_data)
-            all_data = purity_dataset(all_data)
 
             print("saving dataset...")
-            save_pickle(self.wrap_dataset(all_data), os.path.join(self.save_path, 'all_data.pkl'))
-            save_pickle(self.wrap_dataset(train_data), os.path.join(self.save_path, 'train_data.pkl'))
-            save_pickle(self.wrap_dataset(test_data), os.path.join(self.save_path, 'test_data.pkl'))
+            save_pickle(self.wrap_dataset(train_data), os.path.join(self.save_path, 'index_train_data.pkl'))
+            save_pickle(self.wrap_dataset(test_data), os.path.join(self.save_path, 'index_test_data.pkl'))
 
 
 class DataGeneratorMultiProcessing(DataGenerator):
@@ -363,24 +407,20 @@ class DataGeneratorMultiProcessing(DataGenerator):
             all_data = load_pickle(os.path.join(self.save_path, 'origin_data.pkl'))
 
         all_data = filter_dataset(all_data)
-
+        data_index = apply_dgl(all_data, self.save_path)
 
         if k_fold:
             print("Splitting dataset...")
-            for i, (train_data, test_data) in enumerate(KFold_split(all_data, K=k_fold)):
-                train_data = purity_dataset(train_data)
+            for i, (train_data, test_data) in enumerate(KFold_split(data_index, K=k_fold)):
                 batch = i+1
                 print("saving dataset {}...".format(batch))
-                save_pickle(self.wrap_dataset(train_data), os.path.join(self.save_path, 'train_data_{}.pkl'.format(batch)))
-                save_pickle(self.wrap_dataset(test_data), os.path.join(self.save_path, 'test_data_{}.pkl'.format(batch)))
+                save_pickle(self.wrap_dataset(train_data), os.path.join(self.save_path, 'index_train_data_{}.pkl'.format(batch)))
+                save_pickle(self.wrap_dataset(test_data), os.path.join(self.save_path, 'index_test_data_{}.pkl'.format(batch)))
         else:
-        # return
             print("Splitting dataset...")
-            train_data, test_data = split_train_test_set(all_data)
-            train_data = purity_dataset(train_data)
-            all_data = purity_dataset(all_data)
+            train_data, test_data = split_train_test_set(data_index)
 
-        print("saving dataset...")
-        save_pickle(self.wrap_dataset(all_data), os.path.join(self.save_path, 'all_data.pkl'))
-        save_pickle(self.wrap_dataset(train_data), os.path.join(self.save_path, 'train_data.pkl'))
-        save_pickle(self.wrap_dataset(test_data), os.path.join(self.save_path, 'test_data.pkl'))
+            print("saving dataset...")
+            # save_pickle(self.wrap_dataset(all_data), os.path.join(self.save_path, 'all_data.pkl'))
+            save_pickle(self.wrap_dataset(train_data), os.path.join(self.save_path, 'index_train_data.pkl'))
+            save_pickle(self.wrap_dataset(test_data), os.path.join(self.save_path, 'index_test_data.pkl'))
