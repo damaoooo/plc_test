@@ -6,8 +6,6 @@ import cxxfilt
 import networkx as nx
 import numpy as np
 import pygraphviz as pgv
-import dgl
-import torch
 
 np.set_printoptions(suppress=True)
 
@@ -275,6 +273,7 @@ class Converter:
             return
 
         G = nx.Graph(G)
+
         function_name = re.sub("_part_\d+", "", G.name)
         function_name = re.sub("_constprop_\d+", "", function_name)
         function_name = re.sub("_isra_\d+", "", function_name)
@@ -286,11 +285,16 @@ class Converter:
         # if not ("_init_" in function_name or "_body" in function_name):
         #     continue
 
-        G2 = dgl.from_networkx(G)
-        G2 = dgl.to_bidirected(G2)
-        G2 = dgl.add_self_loop(G2)
+        G = G.to_undirected()
+        edges = G.edges
+        start = [int(x[0]) for x in edges]
+        end = [int(x[1]) for x in edges]
+        base = min(start + end)
+        start = [x - base for x in start]
+        end = [x - base for x in end]
+        adj = [start, end]
         # adj = np.array(nx.adjacency_matrix(G).todense()).tolist()
-        if not ( self.min_length < G2.num_nodes() < self.max_length):
+        if max(adj[0]) >= self.max_length or max(adj[1]) >= self.max_length:
             return
         
         self.signTable = {}
@@ -303,7 +307,6 @@ class Converter:
                 features.append(self.convert(tpl))
             except ValueError as e:
                 raise UserWarning(str(e))
-        G2.ndata['feat'] = torch.tensor(features)
-        
-        out = {"name": function_name, "binary": binary_name, "arch": arch, "opt": opt}
-        return out, G2
+
+        out = {'adj': adj, "feature": features, "name": function_name, "binary": binary_name, "arch": arch, "opt": opt}
+        return out

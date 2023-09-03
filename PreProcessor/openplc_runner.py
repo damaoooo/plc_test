@@ -99,10 +99,11 @@ def main():
     file_tree = OpenPLCScanner(root_path=config.root_path).scan()
     # file_tree = FileScanner(root_path=config.root_path).scan()
     converter = Converter(op_file=config.op_file, read_op=config.read_op, max_length=config.max_length)
-    # data_generator = DataGenerator(file_tree=file_tree, save_path=config.save_path, converter=converter, read_cache=config.read_cache)
-    multi_datagen = DataGeneratorMultiProcessing(file_tree=file_tree, save_path=config.save_path, converter=converter, read_cache=config.read_cache)
-    # data_generator.run()
-    multi_datagen.run()
+    data_generator = DataGenerator(file_tree=file_tree, save_path=config.save_path, converter=converter, read_cache=config.read_cache)
+    data_generator.run()
+    
+    # multi_datagen = DataGeneratorMultiProcessing(file_tree=file_tree, save_path=config.save_path, converter=converter, read_cache=config.read_cache)
+    # multi_datagen.run()
     
 if __name__ == "__main__":
     main()
