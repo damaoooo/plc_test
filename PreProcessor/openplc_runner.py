@@ -36,7 +36,7 @@ def parse_arg():
     parser.add_argument('--op_file', type=str, default='coreutil_dataset/op_file.pkl', help='Path to save op_file.pkl')
     parser.add_argument('--root_path', type=str, default='coreutil_dataset', help='Path to root directory of orginal dataset, only for file scan')
     parser.add_argument('--k_fold', type=int, default=0, help='set 0 for no k_fold, set k for k_fold')
-    parser.add_argument('--config', "-c", type=str, default='/home/damaoooo/Downloads/plc_test/PreProcessor/data_config.yaml', help='The Configuration file, if with this, no need to give other')
+    parser.add_argument('--config', "-c", type=str, default='./data_config.yaml', help='The Configuration file, if with this, no need to give other')
     return parser.parse_args()
 
 def read_config() -> Config:
@@ -99,10 +99,10 @@ def main():
     file_tree = OpenPLCScanner(root_path=config.root_path).scan()
     # file_tree = FileScanner(root_path=config.root_path).scan()
     converter = Converter(op_file=config.op_file, read_op=config.read_op, max_length=config.max_length)
-    # data_generator = DataGenerator(file_tree=file_tree, save_path='/home/damaoooo/mini_core/', converter=converter, read_cache=False)
+    # data_generator = DataGenerator(file_tree=file_tree, save_path=config.save_path, converter=converter, read_cache=config.read_cache)
     multi_datagen = DataGeneratorMultiProcessing(file_tree=file_tree, save_path=config.save_path, converter=converter, read_cache=config.read_cache)
     # data_generator.run()
-    multi_datagen.run(config.k_fold)
+    multi_datagen.run()
     
 if __name__ == "__main__":
     main()
