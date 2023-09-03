@@ -134,7 +134,7 @@ def dataset_size(dataset: dict):
             size += len(dataset[binary][function])
     return size
 
-def apply_dgl(dataset: dict, save_path: str):
+def apply_dgl(dataset: dict, save_path: str, adj_len: int=1000):
     file_index = {}
     dgl_array = []
     
@@ -150,10 +150,12 @@ def apply_dgl(dataset: dict, save_path: str):
                 file_index[binary_name][function_name] = []
                 
             for function_body in dataset[binary_name][function_name]:
-                graph = dgl.graph((function_body['adj'][0], function_body['adj'][1]))
+                graph = dgl.graph((function_body['adj'][0], function_body['adj'][1]), num_nodes=adj_len)
                 graph = dgl.to_bidirected(graph)
                 graph = dgl.add_self_loop(graph)
-                graph.ndata['feat'] = torch.tensor(function_body['feature'], dtype=torch.float)
+                pad_len = adj_len - len(function_body['feature'])
+                padder = torch.zeros((pad_len, len(function_body['feature'][0])), dtype=torch.float)
+                graph.ndata['feat'] = torch.concat([torch.tensor(function_body['feature'], dtype=torch.float), padder], dim=0)
                 del function_body['adj']
                 del function_body['feature']
                 index = len(dgl_array)
