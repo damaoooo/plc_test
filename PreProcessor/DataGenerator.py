@@ -243,7 +243,7 @@ class DataGenerator:
 
         print("filtering lonely dataset...")
         all_data = filter_dataset(all_data)
-        all_data = apply_dgl(all_data, self.save_path)
+        all_data = apply_dgl(all_data, self.save_path, adj_len=self.converter.max_length)
 
         if k_fold:
             print("Splitting dataset...")
@@ -409,7 +409,7 @@ class DataGeneratorMultiProcessing(DataGenerator):
             all_data = load_pickle(os.path.join(self.save_path, 'origin_data.pkl'))
 
         all_data = filter_dataset(all_data)
-        data_index = apply_dgl(all_data, self.save_path)
+        data_index = apply_dgl(all_data, self.save_path, adj_len=self.converter.max_length)
 
         if k_fold:
             print("Splitting dataset...")
