@@ -126,7 +126,26 @@ class ASTGraphDataset(Dataset):
 
 
 def collate_fn(x):
-    return x
+    batch_size = len(x)
+    sample_list = []
+    same_sample_list = []
+    different_sample_list = []
+    for i in range(batch_size):
+        sample_list.append(x[i]["sample"])
+        same_sample_list.append(x[i]["same_sample"])
+        different_sample_list.append(x[i]["different_sample"])
+    sample_list = dgl.batch(sample_list)
+    same_sample_list = dgl.batch(same_sample_list)
+    different_sample_list = dgl.batch(different_sample_list)
+    
+    if "pool" in x[0]:
+        pool_list = []
+        for i in range(batch_size):
+            pool_list.extend(x[i]["pool"])
+        pool_list = dgl.batch(pool_list)
+        return {"sample": sample_list, "same_sample": same_sample_list, "different_sample": different_sample_list, "label": torch.tensor([0]), "pool": pool_list}
+    return {"sample": sample_list, "same_sample": same_sample_list, "different_sample": different_sample_list, "label": torch.tensor([0])}
+            
 
 class ASTGraphDataModule(pl.LightningDataModule):
     def __init__(
@@ -239,7 +258,7 @@ class ASTGraphDataModule(pl.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=True,
             collate_fn=collate_fn,
-            prefetch_factor=16
+            # prefetch_factor=16
         )
 
     def val_dataloader(self):
@@ -249,7 +268,7 @@ class ASTGraphDataModule(pl.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=False,
             collate_fn=collate_fn,
-            prefetch_factor=16
+            # prefetch_factor=16
         )
 
 
