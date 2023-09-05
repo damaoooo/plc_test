@@ -134,7 +134,7 @@ def dataset_size(dataset: dict):
             size += len(dataset[binary][function])
     return size
 
-def apply_dgl(dataset: dict, save_path: str, adj_len: int=1000):
+def apply_dgl(dataset: dict, save_path: str):
     file_index = {}
     dgl_array = []
     
@@ -150,12 +150,10 @@ def apply_dgl(dataset: dict, save_path: str, adj_len: int=1000):
                 file_index[binary_name][function_name] = []
                 
             for function_body in dataset[binary_name][function_name]:
-                graph = dgl.graph((function_body['adj'][0], function_body['adj'][1]), num_nodes=adj_len)
+                graph = dgl.graph((function_body['adj'][0], function_body['adj'][1]))
                 graph = dgl.to_bidirected(graph)
                 graph = dgl.add_self_loop(graph)
-                pad_len = adj_len - len(function_body['feature'])
-                padder = torch.zeros((pad_len, len(function_body['feature'][0])), dtype=torch.float)
-                graph.ndata['feat'] = torch.concat([torch.tensor(function_body['feature'], dtype=torch.float), padder], dim=0)
+                graph.ndata['feat'] = torch.tensor(function_body['feature'], dtype=torch.float)
                 del function_body['adj']
                 del function_body['feature']
                 index = len(dgl_array)
@@ -409,7 +407,7 @@ class DataGeneratorMultiProcessing(DataGenerator):
             all_data = load_pickle(os.path.join(self.save_path, 'origin_data.pkl'))
 
         all_data = filter_dataset(all_data)
-        data_index = apply_dgl(all_data, self.save_path, adj_len=self.converter.max_length)
+        data_index = apply_dgl(all_data, self.save_path)
 
         if k_fold:
             print("Splitting dataset...")

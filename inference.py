@@ -596,7 +596,7 @@ if __name__ == '__main__':
 
     model_config = ModelConfig()
     
-    with open("dataset/openplc/index_test_data_5.pkl", 'rb') as f:
+    with open("uboot_dataset/index_test_data_1.pkl", 'rb') as f:
         dataset = pickle.load(f)
         f.close()
         # bad_binary_list = []
@@ -606,18 +606,18 @@ if __name__ == '__main__':
         # for binary in bad_binary_list:
         #     del dataset['data'][binary]
     
-    graphs, _ = dgl.load_graphs("dataset/openplc/dgl_graphs.dgl")
+    graphs, _ = dgl.load_graphs("uboot_dataset/dgl_graphs.dgl")
 
-    model_config.model_path = "checkpoint/openplc/version_10/checkpoints/epoch=95-step=7200.ckpt"
+    model_config.model_path = "lightning_logs/version_19/checkpoints/epoch=59-step=81720.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 141
     model_config.max_length = 1000
     model_config.cuda = True
-    model_config.topK = 10
+    model_config.topK = 50
     model = InferenceModel(model_config)
     
     # model.AUC_average(dataset)
-    res = model.test_recall_K_file(dataset, graphs, max_k=10)
+    res = model.test_recall_K_file(dataset, graphs, max_k=50)
     # res = model.test_recall_K_pool(dataset, graphs, max_k=10)
     
     # with open("./recall_allstar.pkl", 'wb') as f:
