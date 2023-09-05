@@ -2,9 +2,9 @@ max_length: 1000
 k_fold: 5
 
 file_path:
-  op_path: /home/damaoooo/Project/plc/dataset/uboot_dataset/op_file.pkl
-  root_path: /home/damaoooo/Project/plc/dataset/uboot_dataset
-  save_path: /home/damaoooo/Project/plc/dataset/uboot_dataset
+  op_path: /opt/li_dataset/coreutil/op_file.pkl
+  root_path: /opt/li_dataset/coreutil
+  save_path: /opt/li_dataset/coreutil
 cache:
   read_op: True
-  read_cache: False
+  read_cache: True

@@ -113,6 +113,36 @@ def filter_dataset(all_data: dict):
 
     return all_data
 
+def filter_bad_dataset(all_data: dict):
+    bad_index = []
+    bad_funtion = []
+    for binary in all_data:
+        for function in all_data[binary]:
+            if len(all_data[binary][function]) < 2:
+                bad_funtion.append((binary, function))
+
+    for binary, function in bad_funtion:
+        for function_body in all_data[binary][function]:
+            bad_index.append(function_body['index'])
+        del all_data[binary][function]
+
+    bad_binary = []
+    for binary in all_data:
+        if len(all_data[binary]) < 2:
+            bad_binary.append(binary)
+
+    for binary in bad_binary:
+        
+        for function in all_data[binary]:
+            for function_body in all_data[binary][function]:
+                bad_index.append(function_body['index'])
+        
+        del all_data[binary]
+
+    bad_index = sorted(list(set(bad_index)), reverse=True)
+
+    return all_data, bad_index
+
 
 def save_pickle(obj, save_path):
     with open(save_path, 'wb') as f:
@@ -134,10 +164,14 @@ def dataset_size(dataset: dict):
             size += len(dataset[binary][function])
     return size
 
-def apply_dgl(dataset: dict, save_path: str, adj_len: int=1000):
+def apply_dgl(dataset: dict, save_path: str, max_length: int):
     file_index = {}
     dgl_array = []
     
+    dgl_path = os.path.join(save_path, 'dgl_graphs.dgl')
+    index_path = os.path.join(save_path, 'total_index.pkl')
+
+    is_bad = False        
     pbar = tqdm(total=dataset_size(dataset))
     pbar.set_description("Converting the dataset to dgl")
     
@@ -150,25 +184,37 @@ def apply_dgl(dataset: dict, save_path: str, adj_len: int=1000):
                 file_index[binary_name][function_name] = []
                 
             for function_body in dataset[binary_name][function_name]:
-                graph = dgl.graph((function_body['adj'][0], function_body['adj'][1]), num_nodes=adj_len)
+                graph = dgl.graph((function_body['adj'][0], function_body['adj'][1]))
                 graph = dgl.to_bidirected(graph)
                 graph = dgl.add_self_loop(graph)
-                pad_len = adj_len - len(function_body['feature'])
-                padder = torch.zeros((pad_len, len(function_body['feature'][0])), dtype=torch.float)
-                graph.ndata['feat'] = torch.concat([torch.tensor(function_body['feature'], dtype=torch.float), padder], dim=0)
+                try:
+                    graph.ndata['feat'] = torch.tensor(function_body['feature'], dtype=torch.float)
+                except dgl._ffi.base.DGLError:
+                    print(f"Bad Function detected from {binary_name} - {function_name}, need to more sanitize")
+                    is_bad = True
+                    pbar.update()
+                    continue
                 del function_body['adj']
                 del function_body['feature']
+                # padding_length = max_length - graph.number_of_nodes()
+                # graph = dgl.add_nodes(graph, padding_length)
+                
                 index = len(dgl_array)
                 dgl_array.append(graph)
                 
                 function_body['index'] = index
                 file_index[binary_name][function_name].append(function_body)
                 pbar.update()
+        
+    pbar.close()
     
-    # pbar.close()
-    print(f"Finish converting, saving the dgl to {os.path.join(save_path, 'dgl_graphs.pkl')} and index file to {os.path.join(save_path, 'total_index.pkl')}")
-    dgl.save_graphs(os.path.join(save_path, 'dgl_graphs.dgl'), dgl_array)
-    with open(os.path.join(save_path, 'total_index.pkl'), 'wb') as f:
+    if is_bad:
+        file_index, bad_index = filter_bad_dataset(file_index)
+        print("bad index length: ", len(bad_index))
+        
+    print(f"Finish converting, saving the dgl to {dgl_path} and index file to {index_path}")
+    dgl.save_graphs(dgl_path, dgl_array)
+    with open(index_path, 'wb') as f:
         pickle.dump(file_index, f)
         f.close()
     return file_index
@@ -409,8 +455,8 @@ class DataGeneratorMultiProcessing(DataGenerator):
             all_data = load_pickle(os.path.join(self.save_path, 'origin_data.pkl'))
 
         all_data = filter_dataset(all_data)
-        data_index = apply_dgl(all_data, self.save_path, adj_len=self.converter.max_length)
-
+        data_index = apply_dgl(all_data, self.save_path, self.converter.max_length)
+            
         if k_fold:
             print("Splitting dataset...")
             for i, (train_data, test_data) in enumerate(KFold_split(data_index, K=k_fold)):

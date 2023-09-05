@@ -115,13 +115,37 @@ class ASTGraphDataset(Dataset):
     # @profile
     def _to_tensor(self, data: dict):
         index = data['index']
-        graph = self.data[index]
+        graph: dgl.DGLGraph = self.data[index]
+        
+        if graph.number_of_nodes() < self.max_adj:
+            padding_size = self.max_adj - graph.number_of_nodes()
+            graph = dgl.add_nodes(graph, padding_size)
+            graph = dgl.add_self_loop(graph)
 
         return graph
 
 
 def collate_fn(x):
-    return x
+    batch_size = len(x)
+    sample_list = []
+    same_sample_list = []
+    different_sample_list = []
+    for i in range(batch_size):
+        sample_list.append(x[i]["sample"])
+        same_sample_list.append(x[i]["same_sample"])
+        different_sample_list.append(x[i]["different_sample"])
+    sample_list = dgl.batch(sample_list)
+    same_sample_list = dgl.batch(same_sample_list)
+    different_sample_list = dgl.batch(different_sample_list)
+    
+    if "pool" in x[0]:
+        pool_list = []
+        for i in range(batch_size):
+            pool_list.extend(x[i]["pool"])
+        pool_list = dgl.batch(pool_list)
+        return {"sample": sample_list, "same_sample": same_sample_list, "different_sample": different_sample_list, "label": torch.tensor([0]), "pool": pool_list}
+    return {"sample": sample_list, "same_sample": same_sample_list, "different_sample": different_sample_list, "label": torch.tensor([0])}
+            
 
 class ASTGraphDataModule(pl.LightningDataModule):
     def __init__(
@@ -233,7 +257,8 @@ class ASTGraphDataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
-            collate_fn=collate_fn
+            collate_fn=collate_fn,
+            # prefetch_factor=16
         )
 
     def val_dataloader(self):
@@ -242,14 +267,15 @@ class ASTGraphDataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=False,
-            collate_fn=collate_fn
+            collate_fn=collate_fn,
+            # prefetch_factor=16
         )
 
 
 if __name__ == "__main__":
     a0 = time.time()
     p = ASTGraphDataModule(
-        data_path="dataset/openplc", pool_size=15, num_workers=16, batch_size=1
+        data_path="/home/damaoooo/Downloads/plc_test/dataset/openplc", pool_size=15, num_workers=16, batch_size=1, k_fold=1
     )
     p.prepare_data()
     train = p.train_dataloader()
