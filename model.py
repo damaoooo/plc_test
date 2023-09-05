@@ -112,7 +112,11 @@ class PLModelForAST(pl.LightningModule):
         
         if self.pool_size:
             batch_size, output_size = latent_same.shape[0], latent_same.shape[1]
-            pool_latents = self.my_model(pool)
+            pool_latents = []
+            for b in range(batch_size):
+                pool_latent = self.my_model(pool[b])
+                pool_latents.append(pool_latent)
+            pool_latents = torch.vstack(pool_latents)
             pool_latents = pool_latents.view(batch_size, -1, output_size) # [batch_size, pool_size, output_size]
             pool_latents = torch.concat([pool_latents, latent_same.unsqueeze(1)], dim=1)
             similarity = F.cosine_similarity(latent_sample.unsqueeze(1), pool_latents, dim=-1)

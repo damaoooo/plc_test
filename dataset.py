@@ -139,11 +139,12 @@ def collate_fn(x):
     different_sample_list = dgl.batch(different_sample_list)
     
     if "pool" in x[0]:
-        pool_list = []
+        batch_list = []
         for i in range(batch_size):
-            pool_list.extend(x[i]["pool"])
-        pool_list = dgl.batch(pool_list)
-        return {"sample": sample_list, "same_sample": same_sample_list, "different_sample": different_sample_list, "label": torch.tensor([0]), "pool": pool_list}
+            pool_list = x[i]["pool"]
+            pool_list = dgl.batch(pool_list)
+            batch_list.append(pool_list)
+        return {"sample": sample_list, "same_sample": same_sample_list, "different_sample": different_sample_list, "label": torch.tensor([0]), "pool": batch_list}
     return {"sample": sample_list, "same_sample": same_sample_list, "different_sample": different_sample_list, "label": torch.tensor([0])}
             
 

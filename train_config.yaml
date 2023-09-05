@@ -2,7 +2,7 @@
 train:
   seed: 1
   max_epochs: 100
-  batch_size: 4
+  batch_size: 3
   num_workers: 0
   pool_size: 50
   k_fold: 1
@@ -16,5 +16,5 @@ hyper_parameters:
   output_features: 128
 
 path:
-  data_path: /home/damaoooo/Downloads/plc_test/dataset/openplc
+  data_path: uboot_dataset
   load_checkpoint: ""
