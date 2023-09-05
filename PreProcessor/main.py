@@ -36,7 +36,7 @@ def parse_arg():
     parser.add_argument('--op_file', type=str, default='coreutil_dataset/op_file.pkl', help='Path to save op_file.pkl')
     parser.add_argument('--root_path', type=str, default='coreutil_dataset', help='Path to root directory of orginal dataset, only for file scan')
     parser.add_argument('--k_fold', type=int, default=0, help='set 0 for no k_fold, set k for k_fold')
-    parser.add_argument('--config', "-c", type=str, default='/home/damaoooo/Project/plc/PreProcessor/data_config.yaml', help='The Configuration file, if with this, no need to give other')
+    parser.add_argument('--config', "-c", type=str, default='data_config.yaml', help='The Configuration file, if with this, no need to give other')
     return parser.parse_args()
 
 def read_config() -> Config:
