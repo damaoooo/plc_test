@@ -238,7 +238,8 @@ class ASTGraphDataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
-            collate_fn=collate_fn
+            collate_fn=collate_fn,
+            prefetch_factor=16
         )
 
     def val_dataloader(self):
@@ -247,7 +248,8 @@ class ASTGraphDataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=False,
-            collate_fn=collate_fn
+            collate_fn=collate_fn,
+            prefetch_factor=16
         )
 
 
