@@ -117,11 +117,10 @@ class ASTGraphDataset(Dataset):
         index = data['index']
         graph: dgl.DGLGraph = self.data[index]
         
-        # if graph.number_of_nodes() < self.max_adj:
-        #     padding_size = self.max_adj - graph.number_of_nodes()
-        #     graph = dgl.add_nodes(graph, padding_size)
-            # padding = torch.zeros((padding_size, self.feature_len))
-            # graph.ndata['feat'] = torch.cat([graph.ndata['feat'], padding], dim=0)
+        if graph.number_of_nodes() < self.max_adj:
+            padding_size = self.max_adj - graph.number_of_nodes()
+            graph = dgl.add_nodes(graph, padding_size)
+            graph = dgl.add_self_loop(graph)
 
         return graph
 
@@ -255,7 +254,7 @@ class ASTGraphDataModule(pl.LightningDataModule):
 if __name__ == "__main__":
     a0 = time.time()
     p = ASTGraphDataModule(
-        data_path="/opt/li_dataset/coreutil", pool_size=15, num_workers=16, batch_size=1, k_fold=1
+        data_path="/home/damaoooo/Downloads/plc_test/dataset/openplc", pool_size=15, num_workers=16, batch_size=1, k_fold=1
     )
     p.prepare_data()
     train = p.train_dataloader()

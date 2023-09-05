@@ -171,7 +171,7 @@ def apply_dgl(dataset: dict, save_path: str, max_length: int):
     dgl_path = os.path.join(save_path, 'dgl_graphs.dgl')
     index_path = os.path.join(save_path, 'total_index.pkl')
 
-        
+    is_bad = False        
     pbar = tqdm(total=dataset_size(dataset))
     pbar.set_description("Converting the dataset to dgl")
     
@@ -196,8 +196,8 @@ def apply_dgl(dataset: dict, save_path: str, max_length: int):
                     continue
                 del function_body['adj']
                 del function_body['feature']
-                padding_length = max_length - graph.number_of_nodes()
-                graph = dgl.add_nodes(graph, padding_length)
+                # padding_length = max_length - graph.number_of_nodes()
+                # graph = dgl.add_nodes(graph, padding_length)
                 
                 index = len(dgl_array)
                 dgl_array.append(graph)
