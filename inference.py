@@ -203,6 +203,11 @@ class InferenceModel:
     
     def single_dgl_to_embedding(self, data: dgl.DGLGraph):
         with torch.no_grad():
+            
+            padding = self.max_length - data.num_nodes()
+            data = dgl.add_nodes(data, padding)
+            data = dgl.add_self_loop(data)
+            
             if self.config.cuda:
                 data = data.to('cuda')
             tembedding = self.model.my_model(data)
@@ -596,7 +601,7 @@ if __name__ == '__main__':
 
     model_config = ModelConfig()
     
-    with open("uboot_dataset/index_test_data_1.pkl", 'rb') as f:
+    with open("dataset/coreutil/index_test_data_5.pkl", 'rb') as f:
         dataset = pickle.load(f)
         f.close()
         # bad_binary_list = []
@@ -606,18 +611,18 @@ if __name__ == '__main__':
         # for binary in bad_binary_list:
         #     del dataset['data'][binary]
     
-    graphs, _ = dgl.load_graphs("uboot_dataset/dgl_graphs.dgl")
+    graphs, _ = dgl.load_graphs("dataset/coreutil/dgl_graphs.dgl")
 
-    model_config.model_path = "lightning_logs/version_19/checkpoints/epoch=59-step=81720.ckpt"
+    model_config.model_path = "lightning_logs/version_10/checkpoints/epoch=51-step=96356.ckpt"
     model_config.dataset_path = ""
-    model_config.feature_length = 141
+    model_config.feature_length = 151
     model_config.max_length = 1000
     model_config.cuda = True
     model_config.topK = 50
     model = InferenceModel(model_config)
     
     # model.AUC_average(dataset)
-    res = model.test_recall_K_file(dataset, graphs, max_k=50)
+    res = model.test_recall_K_file(dataset, graphs, max_k=model_config.topK)
     # res = model.test_recall_K_pool(dataset, graphs, max_k=10)
     
     # with open("./recall_allstar.pkl", 'wb') as f:
