@@ -83,7 +83,13 @@ class UBootScanner(FileScanner):
             # Remove irrelevant directory
             if "cpg" in arch_bin:
                 continue
-
+            
+            if "test_data" in arch_bin:
+                continue
+            
+            if not os.path.isdir(os.path.join(self.root_path, arch_bin)):
+                continue
+            
             arch = arch_bin
             opt_level = "mix"
 

@@ -3,13 +3,21 @@ import os
 import numpy as np
 import pickle
 import json
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 from model import PLModelForAST
 from dataset import ASTGraphDataModule
 from collections import Counter
-from typing import Dict, List
+from typing import Dict, List, Tuple, Union, Callable
 from sklearn.metrics import roc_auc_score
+from line_profiler import LineProfiler
+# import torch.multiprocessing as multiprocessing
+import multiprocessing
+import queue
+from multiprocessing.pool import ThreadPool
+import threading
 
+import dgl
 
 def get_cos_similar_multi(v1, v2):
     num = np.dot([v1], v2.T)  # 向量点乘
@@ -71,10 +79,21 @@ class InferenceModel:
                                    alpha=self.config.alpha, dropout=self.config.dropout, n_heads=self.config.n_heads,
                                    output_features=self.config.hidden_features
                                    )
-        self.model = self.model.load_from_checkpoint(self.config.model_path)
+        self.model = self.model.load_from_checkpoint(self.config.model_path, strict=False)
+
+        self.pool_size = multiprocessing.cpu_count()
+        if self.config.cuda:
+            self.device_name = 'cuda'
+        else:
+            self.device_name = 'cpu'
+        self.eye = torch.eye(self.max_length, device=self.device_name)
+        self.zero = torch.zeros([self.max_length, self.max_length], device=self.device_name)
+
         if self.config.cuda:
             self.model = self.model.cuda()
+            self.pool_size = int(np.floor(torch.cuda.get_device_properties('cuda').total_memory / (1024 ** 2) / 1968))
         self.model.eval()
+
 
     def data_distribution(self):
         if not self.dataset:
@@ -123,109 +142,82 @@ class InferenceModel:
 
         print("Exclusive: ", set(names) - set(good_fun))
         print("Count:", Counter(good_fun))
-
-    def get_function_file_embedding(self, file_dir):
-
-        function_set: Dict[str, FunctionEmbedding] = {}
-
-        for file in os.listdir(file_dir):
-            if file.endswith('.json'):
-                try:
-                    name, embedding = self.get_function_embeding(os.path.join(file_dir, file))
-                    function_set[name] = embedding
-                except IndexError:
-                    with open(os.path.join(file_dir, file), 'r') as f:
-                        content = f.read()
-                        content = json.loads(content)
-                        f.close()
-                    name = content['name']
-                    print("Function {} is too long with length {}".format(name, len(content['feature'])))
-                
-        return function_set
     
     def get_function_set_embedding(self, function_list: List[dict]):
         function_set: Dict[str, FunctionEmbedding] = {}
         for figure in function_list:
-            name, embedding = self.get_single_function_embedding(figure)
+            name, embedding = figure['name'], FunctionEmbedding(name=figure['name'], embedding=figure['embedding'])
             function_set[name] = embedding
         return function_set
     
-    def get_function_pool_embedding(self, function_list: Dict[str, List[dict]]):
+    def get_function_pool_embedding(self, function_list: Dict[str, List[dict]]) -> Tuple[list, List[FunctionEmbedding]]:
         function_result_list: List[FunctionEmbedding] = []
         name_list = []
         for function_name in function_list:
             for function_body in function_list[function_name]:
-                name, embedding = self.get_single_function_embedding(function_body)
+                name, embedding = function_body['name'], FunctionEmbedding(name=function_body['name'], embedding=function_body['embedding'])
                 function_result_list.append(embedding)
                 name_list.append(name)
         return name_list, function_result_list
-        
-    def get_single_function_embedding(self, dicts: dict):
+    
+    def get_single_function_embedding(self, dicts: dict) -> Tuple[str, FunctionEmbedding]:
         with torch.no_grad():
             tfeature, tadj, name = self.to_tensor(dicts)
-            tembedding = self.model.my_model(tadj, tfeature).detach().cpu()
+            tembedding = self.model.my_model(tadj, tfeature)
+            tembedding = tembedding.detach().cpu()
             
-        embedding = tembedding.clone().numpy()
-        del tembedding
-        
-        # adj = tadj.detach().cpu().clone().numpy()
-        del tadj
-        
-        # feature = tfeature.detach().cpu().clone().numpy()
-        del tfeature
+            embedding = tembedding.numpy()
+            del tembedding
+            
+            # adj = tadj.detach().cpu().clone().numpy()
+            del tadj
+            
+            # feature = tfeature.detach().cpu().clone().numpy()
+            del tfeature
 
-        return name, FunctionEmbedding(name=name, embedding=embedding)
-        
-    @torch.no_grad()
-    def get_top_k(self, file_dir, function_filename):
-
-        function_set = self.get_function_file_embedding(file_dir=file_dir)
-
-        name, embedding = self.get_function_embeding(function_filename)
-
-        result = []
-
-        for k in function_set:
-            cosine = get_cos_similar_multi(embedding.embedding, function_set[k].embedding)
-            result.append([k, cosine])
-            function_set[k].cosine = cosine
-
-        result = sorted(result, key=lambda x: x[1])[-self.config.topK:][::-1]
-        result = ['Function: {}, Cosine: {}'.format(x[0], round(x[1].item(), 4)) for x in result]
-        print(name, 'in', result)
-
-    def get_function_embeding(self, json_file):
-        with open(json_file, 'r') as f:
-            content = f.read()
-            content = json.loads(content)
-            f.close()
-        feature, adj, name = self.to_tensor(content)
-        embedding = self.model.my_model(adj, feature).detach().cpu().numpy()
-        return name, FunctionEmbedding(name=name, adj=adj, feature=feature, embedding=embedding)
+            return name, FunctionEmbedding(name=name, embedding=embedding)
 
     def to_tensor(self, json_dict: dict):
         adj = json_dict['adj']
         feature = json_dict['feature']
         name = json_dict['name']
 
-        feature = torch.FloatTensor(feature)
-        adj_matrix = torch.zeros([self.max_length, self.max_length])
-        start = torch.tensor(adj[0])
-        end = torch.tensor(adj[1])
+
+        feature = torch.tensor(feature, dtype=torch.float, device=self.device_name)
+        # print(feature.shape)
+        adj_matrix = torch.zeros_like(self.zero, device=self.device_name)
+        start = torch.tensor(adj[0], device=self.device_name)
+        end = torch.tensor(adj[1], device=self.device_name)
         adj_matrix[start, end] = 1
 
         adj_matrix = (adj_matrix + adj_matrix.T)
-        adj_matrix += torch.eye(self.max_length)
+        adj_matrix += self.eye
 
         # For padding
         feature_padder = torch.nn.ZeroPad2d([0, self.feature_length - feature.shape[1], 0, self.max_length - feature.shape[0]])
-        feature = feature_padder(feature)[:self.max_length][:, :self.feature_length]
-
-        if self.config.cuda:
-            feature = feature.to(device='cuda')
-            adj_matrix = adj_matrix.to(device='cuda')
+        # feature = feature_padder(feature)[:self.max_length][:, :self.feature_length]
+        feature = feature_padder(feature)
+        # print("After: ", feature.shape)
 
         return feature, adj_matrix, name
+    
+    def single_dgl_to_embedding(self, data: dgl.DGLGraph):
+        with torch.no_grad():
+            
+            padding = self.max_length - data.num_nodes()
+            data = dgl.add_nodes(data, padding)
+            data = dgl.add_self_loop(data)
+            
+            if self.config.cuda:
+                data = data.to('cuda')
+            tembedding = self.model.my_model(data)
+            tembedding = tembedding.detach().cpu()
+            
+            embedding = tembedding.numpy()
+            del tembedding
+            
+            return embedding
+        
     
     @torch.no_grad()
     def get_test_pairs_pool_embedding(self, function_list1: List, function_pool: Dict, use_cache=""):
@@ -233,6 +225,7 @@ class InferenceModel:
         if use_cache and os.path.exists(use_cache):
             with open(use_cache, 'rb') as f:
                 result = pickle.load(f)
+
                 pool_name_list, function_pool = result
                 f.close()
         else:
@@ -312,13 +305,17 @@ class InferenceModel:
                     if "CTU" in x or "CTD" in x:
                         return True
         return False
-            
-    def test_recall_K_pool(self, dataset:dict, max_k=1000, cache_path=""):
+    
+    # @profile
+    def test_recall_K_pool(self, dataset:dict, graph: list, max_k=1000, cache_path=""):
         recall = {x: [] for x in range(1, max_k + 1)}
         self.config.topK = max_k
             
         record_total = {x: [0, 0] for x in range(1, max_k + 1)}
-
+        dataset = self.merge_dgl_dict(dataset, graph)
+        
+        pbar = tqdm(total=len(dataset['data']))
+        pbar.set_description("Testing Recall")
         for binary in dataset['data']:
 
             function_list1 = self.get_function_name_list(dataset['data'][binary])
@@ -327,7 +324,7 @@ class InferenceModel:
                 # with open("result.pkl", 'rb') as f:
 
                 result = self.get_test_pairs_pool_embedding(function_list1=function_list1, function_pool=function_pool1, use_cache=cache_path)
-                    
+                pbar.update()
                 for k in range(1, max_k + 1):
                     correct, total = self.get_recall_score(result, k=k)
 
@@ -345,35 +342,180 @@ class InferenceModel:
         print("avg_recall", avg_recall, '\n', "recall_avg", recall_avg, '\n')
         return recall
     
-    def test_recall_K_file(self, dataset:dict, max_k: int = 10):
-        recall = []
-        for k in range(1, max_k + 1):
-            correct_total = 0
-            total_total = 0
-            
-            self.config.topK = k
+    def test_recall_K_file_parallel_reduce(self, queue: multiprocessing.Queue, max_k: int):
 
-            for binary_name in dataset['data']:
-                for arch1 in ['gcc', 'arm-linux-gnueabi', 'powerpc-linux-gnu', 'mips-linux-gnu']:
-                    for opt1 in ["-O0", "-O1", "-O2", "-O3"]:
-                        for arch2 in ['gcc', 'arm-linux-gnueabi', 'powerpc-linux-gnu', 'mips-linux-gnu']:
-                            for opt2 in ["-O0", "-O1", "-O2", "-O3"]:
-                                try:
-                                    print(f"Doing {arch1}{opt1} vs {arch2}{opt2}, current {correct_total}/{total_total} = {correct_total/(total_total+1)}")
-                                    function_list1 = self.get_function_name_list(dataset['data'][binary_name], arch1, opt1)
-                                    function_list2 = self.get_function_name_list(dataset['data'][binary_name], arch2, opt2)
-                                    with torch.no_grad():
-                                        correct, total = self.get_test_pairs(function_list1=function_list1, function_list2=function_list2) 
-                                    correct_total += correct
-                                    total_total += total
-                                except ValueError:
-                                    print("No that Architecture and Opt_level")
-                                
-            recall.append(correct_total / total_total)
-            print(f"recall@{k}: {correct_total / total_total}")
-        print(recall)
-        return recall
+        # recall_total = {key: [0, 0] for key in range(1, max_k + 1)}
+        recall = {key: [] for key in range(1, max_k + 1)}
+
+        while True:
+            try:
+                res = queue.get(timeout=1)
+            except multiprocessing.TimeoutError:
+                continue
+
+            if isinstance(res, str):
+                queue.put(recall)
+                break
+
+            assert isinstance(res, dict)
+            for k in range(1, max_k + 1):
+                print(res)
+                recall[k].append(res[k][0] / res[k][1])
+
+        # return recall
+
     
+    def test_recall_K_file_parallel_map(self, dataset: dict, max_k, binary_name: str, update_callback: Callable, queue: multiprocessing.Queue):
+
+        recall_total = {key: [0, 0] for key in range(1, max_k + 1)}
+
+        print("Generating Function Pool for {}".format(binary_name))
+        candidate_pool, candidate_name_list = self.get_function_file_set(dataset=dataset, binary_name=binary_name)
+        # return 
+        function_list1 = dataset['data'][binary_name].keys()
+        for function_name in function_list1:
+            for function_body in dataset['data'][binary_name][function_name]:
+                update_callback()
+                arch, opt = function_body['arch'], function_body['opt']
+                
+                if (arch, opt) not in candidate_pool:
+                    continue
+                
+                name, query_embedding = self.get_single_function_embedding(function_body)
+                query_embedding: FunctionEmbedding
+                query_embedding = query_embedding.embedding
+                
+                mat2 = []
+                for c in candidate_pool[(arch, opt)]:
+                    c: FunctionEmbedding
+                    mat2.append(c.embedding)
+                mat2 = np.vstack(mat2)
+                
+                mm = get_cos_similar_multi(query_embedding, mat2)
+                rank_list = sorted(zip(mm.reshape(-1), candidate_name_list[(arch, opt)]), key=lambda x: x[0], reverse=True)[:self.config.topK]
+                for k in range(1, max_k + 1):
+                    is_correct = self.judge(name, [x[1] for x in rank_list[:k]])
+                    recall_total[k][0] += int(is_correct)
+                    recall_total[k][1] += 1
+
+                
+                    
+        queue.put(recall_total)
+        
+    
+    def test_recall_K_file_parallel(self, dataset: dict, max_k: int = 10):
+        self.config.topK = max_k
+        pbar = tqdm(total=self.get_dataset_function_num(dataset))
+        
+        message_queue = queue.Queue(10)
+        
+        pool2 = ThreadPool(1)
+        res = pool2.apply_async(self.test_recall_K_file_parallel_reduce, args=(message_queue, max_k))
+
+        # pool = multiprocessing.Pool(self.pool_size)
+        pool = ThreadPool(self.pool_size)
+        for binary in dataset['data']:
+            pool.apply_async(self.test_recall_K_file_parallel_map, args=(dataset, max_k, binary, pbar.update, message_queue))
+
+        pool.close()
+        pool.join()
+            
+        message_queue.put("end")
+        pool2.close()
+        pool2.join()
+        while not message_queue.empty():
+            print("Remaining Content:", message_queue.get())
+        # recall_avg = message_queue.get()
+
+        print("recall_avg", 0, '\n')
+    
+    def merge_dgl_dict(self, dataset: dict, graphs: List[dgl.DGLGraph]):
+        pbar = tqdm(total=self.get_dataset_function_num(dataset))
+        pbar.set_description("Converting DGL to Embedding")
+        
+        for binary in dataset['data']:
+            for function_name in dataset['data'][binary]:
+                for i in range(len(dataset['data'][binary][function_name])):
+                    index = dataset['data'][binary][function_name][i]['index']
+                    embedding = self.single_dgl_to_embedding(graphs[index])
+                    dataset['data'][binary][function_name][i]['embedding'] = embedding
+                    pbar.update()
+        return dataset
+    
+    # @profile
+    def test_recall_K_file(self, dataset:dict, graph: list, max_k: int = 10):
+        recall = {x: [] for x in range(1, max_k + 1)}
+        self.config.topK = max_k
+        
+        dataset = self.merge_dgl_dict(dataset, graph)
+                
+        pbar = tqdm(total=self.get_dataset_function_num(dataset))
+        
+        record_total = {x: [0, 0] for x in range(1, max_k + 1)}
+        
+        for binary in dataset['data']:
+            print("Generating Function Pool for {}".format(binary))
+            candidate_pool, candidate_name_list = self.get_function_file_set(dataset=dataset, binary_name=binary)
+            # return 
+            function_list1 = dataset['data'][binary].keys()
+            for function_name in function_list1:
+                for function_body in dataset['data'][binary][function_name]:
+                    pbar.update()
+                    arch, opt = function_body['arch'], function_body['opt']
+                    
+                    if (arch, opt) not in candidate_pool:
+                        continue
+                    
+                    name, query_embedding = function_body['name'], FunctionEmbedding(name=function_body['name'], embedding=function_body['embedding'])
+                    query_embedding: FunctionEmbedding
+                    query_embedding = query_embedding.embedding
+                    
+                    mat2 = []
+                    for c in candidate_pool[(arch, opt)]:
+                        c: FunctionEmbedding
+                        mat2.append(c.embedding)
+                    mat2 = np.vstack(mat2)
+                    
+                    mm = get_cos_similar_multi(query_embedding, mat2)
+                    rank_list = sorted(zip(mm.reshape(-1), candidate_name_list[(arch, opt)]), key=lambda x: x[0], reverse=True)[:self.config.topK]
+                    for k in range(1, max_k + 1):
+                        is_correct = self.judge(name, [x[1] for x in rank_list[:k]])
+                        record_total[k][0] += int(is_correct)
+                        record_total[k][1] += 1
+
+            for k in range(1, max_k + 1):
+                recall[k].append(record_total[k][0] / record_total[k][1])
+            # return 
+        
+        avg_recall = []
+        recall_avg = []
+        for k in range(1, max_k + 1):
+            avg_recall.append(record_total[k][0] / record_total[k][1])
+            recall_avg.append(np.mean(recall[k]))
+            
+        print("avg_recall", avg_recall, '\n', "recall_avg", recall_avg, '\n')
+                    
+    # @profile
+    def get_function_file_set(self, dataset: dict, binary_name) -> Tuple[Dict[tuple, List[FunctionEmbedding]], Dict[tuple, List[str]]]:
+        candidate_pool: Dict[tuple, List[FunctionEmbedding]] = {}
+        candidate_name_pool: Dict[tuple, List[str]] = {}
+        count = 0
+        for function_name in dataset['data'][binary_name]:
+            for function_body in dataset['data'][binary_name][function_name]:
+                arch, opt = function_body['arch'], function_body['opt']
+                if (arch, opt) not in candidate_pool:
+                    candidate_pool[(arch, opt)] = []
+                    candidate_name_pool[(arch, opt)] = []
+                    
+                name, embedding = function_body['name'], FunctionEmbedding(name=function_body['name'], embedding=function_body['embedding'])
+                candidate_pool[(arch, opt)].append(embedding)
+                candidate_name_pool[(arch, opt)].append(name)
+                count += 1
+                # if count >= 5:
+                #     return candidate_pool, candidate_name_pool
+        
+        return candidate_pool, candidate_name_pool
+ 
     def ROC_pair(self, function_list1, function_list2):
         function_set1 = self.get_function_set_embedding(function_list=function_list1)
         function_set2 = self.get_function_set_embedding(function_list=function_list2)
@@ -406,8 +548,8 @@ class InferenceModel:
                         for opt2 in opts:
                             try:
 
-                                function_list1 = self.get_function_name_list(dataset['data'][binary_name], arch=arch1, opt=opt1)
-                                function_list2 = self.get_function_name_list(dataset['data'][binary_name], arch=arch2, opt=opt2)
+                                function_list1 = self.get_function_name_list(dataset['data'][binary_name])
+                                function_list2 = self.get_function_name_list(dataset['data'][binary_name])
                                 with torch.no_grad():
                                     score, label = self.ROC_pair(function_list1=function_list1, function_list2=function_list2)
                                     
@@ -433,8 +575,8 @@ class InferenceModel:
                         for opt2 in opts:
                             try:
 
-                                function_list1 = self.get_function_name_list(dataset['data'][binary_name], arch=arch1, opt=opt1)
-                                function_list2 = self.get_function_name_list(dataset['data'][binary_name], arch=arch2, opt=opt2)
+                                function_list1 = self.get_function_name_list(dataset['data'][binary_name])
+                                function_list2 = self.get_function_name_list(dataset['data'][binary_name])
                                 with torch.no_grad():
                                     score, label = self.ROC_pair(function_list1=function_list1, function_list2=function_list2)
                                     
@@ -446,35 +588,48 @@ class InferenceModel:
         auc_score = np.mean(auc_score)
         return auc_score
         
+    def get_dataset_function_num(self, dataset: dict):
+        num = 0
+        for binary_name in dataset['data']:
+            for function_name in dataset['data'][binary_name]:
+                num += len(dataset['data'][binary_name][function_name])
+        return num
+        
 if __name__ == '__main__':
+
+    # multiprocessing.set_start_method(method='forkserver', force=True)
+
     model_config = ModelConfig()
     
-    with open("dataset/allstar/test_set.pkl", 'rb') as f:
+    with open("dataset/coreutil/index_test_data_5.pkl", 'rb') as f:
         dataset = pickle.load(f)
         f.close()
-        bad_binary_list = []
-        for binary in dataset['data']:
-            if len(dataset['data'][binary]) < 50:
-                bad_binary_list.append(binary)
-        for binary in bad_binary_list:
-            del dataset['data'][binary]
+        # bad_binary_list = []
+        # for binary in dataset['data']:
+        #     if len(dataset['data'][binary]) < 50:
+        #         bad_binary_list.append(binary)
+        # for binary in bad_binary_list:
+        #     del dataset['data'][binary]
     
-    model_config.model_path = "lightning_logs/allstar_1/epoch=0-step=319000.ckpt"
+    graphs, _ = dgl.load_graphs("dataset/coreutil/dgl_graphs.dgl")
+
+    model_config.model_path = "lightning_logs/version_10/checkpoints/epoch=51-step=96356.ckpt"
     model_config.dataset_path = ""
-    model_config.feature_length = 145
-    model_config.max_length = 1500
+    model_config.feature_length = 151
+    model_config.max_length = 1000
     model_config.cuda = True
     model_config.topK = 50
     model = InferenceModel(model_config)
     
     # model.AUC_average(dataset)
-    res = model.test_recall_K_pool(dataset, max_k=50, cache_path="")
+    res = model.test_recall_K_file(dataset, graphs, max_k=model_config.topK)
+    # res = model.test_recall_K_pool(dataset, graphs, max_k=10)
     
-    with open("./recall_allstar.pkl", 'wb') as f:
-        pickle.dump(res, f)
-        f.close()
+    # with open("./recall_allstar.pkl", 'wb') as f:
+    #     pickle.dump(res, f)
+    #     f.close()
     
-    data = [res[i] for i in [1, 5, 10, 20, 30, 40, 50]]
-    label = [str(x) for x in [1, 5, 10, 20, 30, 40, 50]]
-    plt.boxplot(data, labels=label)
-    plt.savefig("recall_allstar.png")
+    # data = [res[i] for i in [1, 5, 10, 20, 30, 40, 50]]
+    # label = [str(x) for x in [1, 5, 10, 20, 30, 40, 50]]
+    # plt.boxplot(data, labels=label)
+    # plt.savefig("recall_allstar.png")

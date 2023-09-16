@@ -94,16 +94,31 @@ class OpenPLCScanner(FileScanner):
             
         return self.file_tree
 
+
+class BinKitScanner(FileScanner):
+    def __init__(self, root_path: str):
+        super().__init__(root_path)
+        
+    def scan(self):
+        for file in os.listdir(os.path.join(self.root_path, 'lift')):
+            if file.endswith('_c_dot') and os.path.isdir(os.path.join(self.root_path, 'lift', file)):
+                arch, opt, binary_name = file.split('|')
+                folder_path = os.path.join(self.root_path, 'lift', file)
+                if os.listdir(folder_path) == []:
+                    continue
+                self.file_tree.add_to_tree(binary_name=binary_name, dot_file=os.path.join(self.root_path, 'lift', file), arch=arch, opt=opt)
+        
+        return self.file_tree
+
 def main():
     config: Config = read_config()
-    file_tree = OpenPLCScanner(root_path=config.root_path).scan()
+    file_tree = BinKitScanner(root_path=config.root_path).scan()
     # file_tree = FileScanner(root_path=config.root_path).scan()
     converter = Converter(op_file=config.op_file, read_op=config.read_op, max_length=config.max_length)
-    # data_generator = DataGenerator(file_tree=file_tree, save_path=config.save_path, converter=converter, read_cache=config.read_cache)
-    # data_generator.run()
-    
+    # data_generator = DataGenerator(file_tree=file_tree, save_path='/home/damaoooo/mini_core/', converter=converter, read_cache=False)
     multi_datagen = DataGeneratorMultiProcessing(file_tree=file_tree, save_path=config.save_path, converter=converter, read_cache=config.read_cache)
-    multi_datagen.run()
+    # data_generator.run()
+    multi_datagen.run(config.k_fold)
     
 if __name__ == "__main__":
     main()

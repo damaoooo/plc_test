@@ -48,3 +48,5 @@ dcgm
 *.xlsx
 result_*
 *test.py
+*.yml
+*.yaml
