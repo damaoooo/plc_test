@@ -456,6 +456,7 @@ class DataGeneratorMultiProcessing(DataGenerator):
 
         all_data = filter_dataset(all_data)
         data_index = apply_dgl(all_data, self.save_path, self.converter.max_length)
+        save_pickle(self.wrap_dataset(data_index), os.path.join(self.save_path, 'index_all.pkl'))
             
         if k_fold:
             print("Splitting dataset...")

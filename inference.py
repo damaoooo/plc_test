@@ -16,14 +16,26 @@ import multiprocessing
 import queue
 from multiprocessing.pool import ThreadPool
 import threading
+import random
+import copy
+import argparse
 
 import dgl
+
+
 
 def get_cos_similar_multi(v1, v2):
     num = np.dot([v1], v2.T)  # 向量点乘
     denom = np.linalg.norm(v1) * np.linalg.norm(v2)  # 求模长的乘积
     res = num / denom
-    return 0.5 + 0.5 * res
+    # return res
+    return res
+
+def get_cos_similar_single(v1, v2):
+    num = np.dot(v1, v2.T)  # 向量点乘
+    denom = np.linalg.norm(v1) * np.linalg.norm(v2)  # 求模长的乘积
+    res = num / denom
+    return res
 
 
 class FunctionEmbedding:
@@ -442,12 +454,132 @@ class InferenceModel:
                     pbar.update()
         return dataset
     
+    def test_top_k_overlap(self, dataset: dict, max_k: int = 10, threshold: int = 2):
+        pbar = tqdm(total=self.get_dataset_function_num(dataset))
+        
+        total_map = {}
+        
+        result_recall = {k: [] for k in range(1, max_k + 1)}
+        
+        for binary in dataset['data']:
+            
+            binary_overlap_map = {}
+            
+            if binary not in total_map:
+                total_map[binary] = binary_overlap_map
+            
+            print("Generating Function Pool for {}".format(binary))
+            candidate_pool, candidate_name_list = self.get_function_file_set(dataset=dataset, binary_name=binary)
+            # return 
+            function_list1 = dataset['data'][binary].keys()
+            
+            for function_name in function_list1:
+                if function_name not in binary_overlap_map:
+                    binary_overlap_map[function_name] = {}
+                    
+                for function_body in dataset['data'][binary][function_name]:
+                    pbar.update()
+                    arch, opt = function_body['arch'], function_body['opt']
+                    
+                    if (arch, opt) not in candidate_pool:
+                        continue
+                    
+                    if function_name not in candidate_name_list[(arch, opt)]:
+                        continue
+                    
+                    name, query_embedding = function_body['name'], FunctionEmbedding(name=function_body['name'], embedding=function_body['embedding'])
+                    query_embedding: FunctionEmbedding
+                    query_embedding = query_embedding.embedding
+                    
+                    mat2 = []
+                    for c in candidate_pool[(arch, opt)]:
+                        c: FunctionEmbedding
+                        mat2.append(c.embedding)
+                    mat2 = np.vstack(mat2)
+                    
+                    mm = get_cos_similar_multi(query_embedding, mat2)
+                    rank_list = sorted(zip(mm.reshape(-1), candidate_name_list[(arch, opt)]), key=lambda x: x[0], reverse=True)[:self.config.topK]
+                    for k in range(1, max_k + 1):
+                        is_correct = self.judge(name, [x[1] for x in rank_list[:k]])
+                        
+                        if k not in binary_overlap_map[function_name]:
+                            binary_overlap_map[function_name][k] = [0, 0]
+                            
+                        binary_overlap_map[function_name][k][0] += int(is_correct)
+                        binary_overlap_map[function_name][k][1] += 1
+
+            # calculate recall@k
+            recall_at_k = {k: [0, 0] for k in range(1, max_k + 1)}
+            for function_name in binary_overlap_map:
+                for k in binary_overlap_map[function_name]:
+                    find = binary_overlap_map[function_name][k][0]
+                    total = binary_overlap_map[function_name][k][1]
+                    if find >= threshold or (threshold >= total and find == total):
+                        recall_at_k[k][0] += 1
+                    recall_at_k[k][1] += 1
+            recall_at_k = {k: recall_at_k[k][0] / recall_at_k[k][1] for k in recall_at_k}
+            result_recall = {k: result_recall[k] + [recall_at_k[k]] for k in result_recall}
+
+        result_recall = {k: np.mean(result_recall[k]) for k in result_recall}
+        result_recall = [result_recall[k] for k in result_recall]
+        print("overlap at {}".format(threshold), result_recall)
+        return result_recall
+    
+    def test_1v1_result(self, dataset: dict):
+        
+        pbar = tqdm(total=self.get_dataset_function_num(dataset))
+        pbar.set_description("Testing 1v1")
+
+        acc_count = 0
+        total_count = 0
+        diff_values = []
+        
+        for binary in dataset['data']:
+            
+            function_name_list = list(dataset['data'][binary].keys())
+            
+            for function_name in dataset['data'][binary]:
+                
+                if len(dataset['data'][binary][function_name]) < 2:
+                    continue
+                
+                different_function_pool = copy.deepcopy(function_name_list)
+                different_function_pool.remove(function_name)
+                
+                same_candidate =  dataset['data'][binary][function_name]
+                
+                for i in range(len(same_candidate)):
+                    pbar.update()
+                    sample_embedding = same_candidate[i]['embedding']
+                    
+                    same_pool = copy.deepcopy(same_candidate)
+                    same_pool.pop(i)
+                    
+                    same_function = random.choice(same_pool)
+                    same_embedding = same_function['embedding']
+                    
+                    different_function_name = random.choice(different_function_pool)
+                    different_function = random.choice(dataset['data'][binary][different_function_name])
+                    
+                    different_embedding = different_function['embedding']
+                    
+                    score1 = get_cos_similar_single(sample_embedding, same_embedding)
+                    score2 = get_cos_similar_single(sample_embedding, different_embedding)
+                    
+                    if score1 > score2:
+                        acc_count += 1
+                    
+                    diff_values.append(score1 - score2)
+                    total_count += 1
+        acc, diff = acc_count / total_count, np.mean(diff_values)
+        print("acc", acc, "diff", diff)
+        return acc, diff
+        
+    
     # @profile
-    def test_recall_K_file(self, dataset:dict, graph: list, max_k: int = 10):
+    def test_recall_K_file(self, dataset:dict, max_k: int = 50):
         recall = {x: [] for x in range(1, max_k + 1)}
         self.config.topK = max_k
-        
-        dataset = self.merge_dgl_dict(dataset, graph)
                 
         pbar = tqdm(total=self.get_dataset_function_num(dataset))
         
@@ -458,12 +590,17 @@ class InferenceModel:
             candidate_pool, candidate_name_list = self.get_function_file_set(dataset=dataset, binary_name=binary)
             # return 
             function_list1 = dataset['data'][binary].keys()
+            
             for function_name in function_list1:
+                
                 for function_body in dataset['data'][binary][function_name]:
                     pbar.update()
                     arch, opt = function_body['arch'], function_body['opt']
                     
                     if (arch, opt) not in candidate_pool:
+                        continue
+                    
+                    if function_name not in candidate_name_list[(arch, opt)]:
                         continue
                     
                     name, query_embedding = function_body['name'], FunctionEmbedding(name=function_body['name'], embedding=function_body['embedding'])
@@ -484,6 +621,8 @@ class InferenceModel:
                         record_total[k][1] += 1
 
             for k in range(1, max_k + 1):
+                if record_total[k][1] == 0:
+                    continue
                 recall[k].append(record_total[k][0] / record_total[k][1])
             # return 
         
@@ -494,6 +633,7 @@ class InferenceModel:
             recall_avg.append(np.mean(recall[k]))
             
         print("avg_recall", avg_recall, '\n', "recall_avg", recall_avg, '\n')
+        return recall
                     
     # @profile
     def get_function_file_set(self, dataset: dict, binary_name) -> Tuple[Dict[tuple, List[FunctionEmbedding]], Dict[tuple, List[str]]]:
@@ -595,41 +735,61 @@ class InferenceModel:
                 num += len(dataset['data'][binary_name][function_name])
         return num
         
+def parse_args():
+    parser = argparse.ArgumentParser(description='Test')
+    parser.add_argument('--model_path', type=str, default="", help='Path to the model')
+    parser.add_argument('--dataset_path', type=str, default="", help='Path to the dataset')
+    parser.add_argument('--topK', type=int, default=50, help='Top K')
+    parser.add_argument('--fold', type=int, default=1, help='fold')
+    parser.add_argument('--threshold', type=int, default=2, help='threshold')
+    parser.add_argument('--save_path', type=str, default="", help='save path')
+    return parser.parse_args()
+
+def save_result(save_path, acc, diff, recall_k, overlap_k):
+
+    with open(save_path, 'w') as f:
+        f.write("Dataset: {}\n".format(args.dataset_path))
+        f.write("Model: {}\n".format(args.model_path))
+        f.write("TopK: {}\n".format(args.topK))
+        f.write("Fold: {}\n".format(args.fold))
+        f.write("Acc: {}, Diff:{}\n".format(acc, diff))
+        f.write("\n")
+        f.write("Recall@K: {}\n".format(recall_k))
+        f.write("\n")
+        f.write("Overlap@K with Threshold{}: {}\n".format(args.threshold, overlap_k))
+    
+
 if __name__ == '__main__':
 
     # multiprocessing.set_start_method(method='forkserver', force=True)
-
+    args = parse_args()
     model_config = ModelConfig()
+    random.seed(1)
     
-    with open("dataset/coreutil/index_test_data_5.pkl", 'rb') as f:
-        dataset = pickle.load(f)
-        f.close()
-        # bad_binary_list = []
-        # for binary in dataset['data']:
-        #     if len(dataset['data'][binary]) < 50:
-        #         bad_binary_list.append(binary)
-        # for binary in bad_binary_list:
-        #     del dataset['data'][binary]
-    
-    graphs, _ = dgl.load_graphs("dataset/coreutil/dgl_graphs.dgl")
-
-    model_config.model_path = "lightning_logs/version_10/checkpoints/epoch=51-step=96356.ckpt"
+    model_config.model_path = args.model_path
     model_config.dataset_path = ""
     model_config.feature_length = 151
     model_config.max_length = 1000
     model_config.cuda = True
-    model_config.topK = 50
+    model_config.topK = args.topK
     model = InferenceModel(model_config)
+
+
+    index_path = os.path.join(args.dataset_path, "index_train_data_{}.pkl".format(args.fold))
+    graph_path = os.path.join(args.dataset_path, "dgl_graphs.dgl")
+        
+    graphs, _ = dgl.load_graphs(graph_path)
+
+    with open(index_path, 'rb') as f:
+        dataset = pickle.load(f)
+        f.close()
+    dataset = model.merge_dgl_dict(dataset, graphs)
     
-    # model.AUC_average(dataset)
-    res = model.test_recall_K_file(dataset, graphs, max_k=model_config.topK)
-    # res = model.test_recall_K_pool(dataset, graphs, max_k=10)
-    
-    # with open("./recall_allstar.pkl", 'wb') as f:
-    #     pickle.dump(res, f)
-    #     f.close()
-    
-    # data = [res[i] for i in [1, 5, 10, 20, 30, 40, 50]]
-    # label = [str(x) for x in [1, 5, 10, 20, 30, 40, 50]]
-    # plt.boxplot(data, labels=label)
-    # plt.savefig("recall_allstar.png")
+    for threshold in range(2, 6):
+        # model.AUC_average(dataset)
+        res = model.test_recall_K_file(dataset, max_k=model_config.topK)
+        acc, diff = model.test_1v1_result(dataset)
+        overlap = model.test_top_k_overlap(dataset, model_config.topK, threshold=threshold)
+        # res = model.test_recall_K_pool(dataset, graphs, max_k=10)
+        save_path = os.path.join(args.save_path, "threshold_{}_fold_{}.txt".format(threshold, args.fold))
+        save_result(save_path, acc, diff, res, overlap)
