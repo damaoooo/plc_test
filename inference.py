@@ -16,6 +16,7 @@ import multiprocessing
 import queue
 from multiprocessing.pool import ThreadPool
 import threading
+import argparse
 
 import dgl
 
@@ -594,14 +595,28 @@ class InferenceModel:
             for function_name in dataset['data'][binary_name]:
                 num += len(dataset['data'][binary_name][function_name])
         return num
-        
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Inference')
+    parser.add_argument('--model_path', type=str, default="lightning_logs/c_re_door/checkpoints/epoch=59-step=42554.ckpt")
+    parser.add_argument('--dataset_path', type=str, default="./c_language")
+    parser.add_argument('--fold', type=int, default=1)
+    parser.add_argument('--topK', type=int, default=10)
+
+    args = parser.parse_args()
+    return args
+
+def save_result():
+    pass
+
+
 if __name__ == '__main__':
 
     # multiprocessing.set_start_method(method='forkserver', force=True)
 
     model_config = ModelConfig()
     
-    with open("dataset/coreutil/index_test_data_5.pkl", 'rb') as f:
+    with open("/opt/li_dataset/binkit/index_test_data_1.pkl", 'rb') as f:
         dataset = pickle.load(f)
         f.close()
         # bad_binary_list = []
@@ -611,9 +626,9 @@ if __name__ == '__main__':
         # for binary in bad_binary_list:
         #     del dataset['data'][binary]
     
-    graphs, _ = dgl.load_graphs("dataset/coreutil/dgl_graphs.dgl")
+    graphs, _ = dgl.load_graphs("/opt/li_dataset/binkit/dgl_graphs.dgl")
 
-    model_config.model_path = "lightning_logs/version_10/checkpoints/epoch=51-step=96356.ckpt"
+    model_config.model_path = "/home/li-zhou/plc_test/checkpoints/binkit/fold1/version_0/checkpoints/last.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 151
     model_config.max_length = 1000
