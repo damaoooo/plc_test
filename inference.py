@@ -764,9 +764,20 @@ if __name__ == '__main__':
     # multiprocessing.set_start_method(method='forkserver', force=True)
     args = parse_args()
     model_config = ModelConfig()
-    random.seed(1)
     
-    model_config.model_path = args.model_path
+    with open("/opt/li_dataset/binkit/index_test_data_1.pkl", 'rb') as f:
+        dataset = pickle.load(f)
+        f.close()
+        # bad_binary_list = []
+        # for binary in dataset['data']:
+        #     if len(dataset['data'][binary]) < 50:
+        #         bad_binary_list.append(binary)
+        # for binary in bad_binary_list:
+        #     del dataset['data'][binary]
+    
+    graphs, _ = dgl.load_graphs("/opt/li_dataset/binkit/dgl_graphs.dgl")
+
+    model_config.model_path = "/home/li-zhou/plc_test/checkpoints/binkit/fold1/version_0/checkpoints/last.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 151
     model_config.max_length = 1000

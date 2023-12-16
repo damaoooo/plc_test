@@ -50,3 +50,4 @@ result_*
 *test.py
 *.yml
 *.yaml
+checkpoints
