@@ -1,9 +1,9 @@
 # Hyper-parameter for training
 train:
   seed: 1
-  max_epochs: 3
+  max_epochs: 100
   batch_size: 10
-  num_workers: 0
+  num_workers: 4
   pool_size: 50
   k_fold: 5
 
@@ -17,6 +17,6 @@ hyper_parameters:
 
 path:
   # data_path: dataset/coreutil
-  data_path: dataset/uboot
+  data_path: dataset/uboot_dataset
   # load_checkpoint: "lightning_logs/version_9/checkpoints/last.ckpt"
   load_checkpoint: ""
