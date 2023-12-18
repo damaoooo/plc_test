@@ -453,7 +453,7 @@ class InferenceModel:
         return dataset
     
     # @profile
-    def test_recall_K_file(self, dataset:dict, graph: list, max_k: int = 10):
+    def test_recall_K_file(self, dataset:dict, graph: list, max_k: int = 10, exclusive_env: tuple = None):
         recall = {x: [] for x in range(1, max_k + 1)}
         self.config.topK = max_k
         
@@ -475,6 +475,9 @@ class InferenceModel:
                     
                     if (arch, opt) not in candidate_pool:
                         continue
+                    
+                    if exclusive_env:
+                        arch, opt = exclusive_env
                     
                     name, query_embedding = function_body['name'], FunctionEmbedding(name=function_body['name'], embedding=function_body['embedding'])
                     query_embedding: FunctionEmbedding
@@ -625,7 +628,7 @@ if __name__ == '__main__':
     
     graphs, _ = dgl.load_graphs("dataset/uboot_dataset/dgl_graphs.dgl")
 
-    model_config.model_path = "lightning_logs/uboot_pearson2/checkpoints/last.ckpt"
+    model_config.model_path = "lightning_logs/version_1/checkpoints/epoch=19-step=2400.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 151
     model_config.max_length = 1000

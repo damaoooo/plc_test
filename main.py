@@ -29,6 +29,8 @@ class TrainConfig:
     seed: int = 1
     max_epochs: int = 200
     k_fold: int = 0
+    exclusive_arch: str = None
+    exclusive_opt: str = None
     
 
 def read_yaml_config(config_path: str):
@@ -56,6 +58,8 @@ def parse_args():
     argparser.add_argument("--output_features", type=int, default=128)
     argparser.add_argument("--load_checkpoint", type=str, default=None)
     argparser.add_argument("--seed", type=int, default=1)
+    argparser.add_argument("--exclusive_arch", type=str, default=None)
+    argparser.add_argument("--exclusive_opt", type=str, default=None)
     return argparser.parse_args()
 
 def read_config() -> TrainConfig:
@@ -81,6 +85,9 @@ def read_config() -> TrainConfig:
         config.max_epochs = yaml_config["train"]["max_epochs"]
         config.k_fold = yaml_config["train"]["k_fold"]
         
+        config.exclusive_arch = yaml_config["hyper_parameters"]["exclusive_arch"]
+        config.exclusive_opt = yaml_config["hyper_parameters"]["exclusive_opt"]
+        
     else:
         config.alpha = args.alpha
         config.lr = args.lr
@@ -100,6 +107,18 @@ def read_config() -> TrainConfig:
         config.max_epochs = args.max_epochs
         config.k_fold = args.k_fold
         
+        config.exclusive_arch = args.exclusive_arch
+        config.exclusive_opt = args.exclusive_opt
+        
+    if args.max_epochs != 200:
+        config.max_epochs = args.max_epochs
+        
+    if args.exclusive_arch is not None:
+        config.exclusive_arch = args.exclusive_arch
+        
+    if args.exclusive_opt is not None:
+        config.exclusive_opt = args.exclusive_opt
+        
     if args.k_fold != 0:
         config.k_fold = args.k_fold
         
@@ -114,7 +133,7 @@ if __name__ == "__main__":
     
     print("Loading Dataset......")
     pool_size = config.pool_size
-    my_dataset = ASTGraphDataModule(batch_size=config.batch_size, num_workers=config.num_workers, data_path=config.data_path, pool_size=pool_size, k_fold=config.k_fold)
+    my_dataset = ASTGraphDataModule(batch_size=config.batch_size, num_workers=config.num_workers, data_path=config.data_path, pool_size=pool_size, k_fold=config.k_fold, exclusive_arch=config.exclusive_arch, exclusive_opt=config.exclusive_opt)
     my_dataset.prepare_data()
 
     print("Dataset Loaded. adj length:", my_dataset.max_length, "feature length:", my_dataset.feature_length)

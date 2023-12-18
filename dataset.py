@@ -1,3 +1,4 @@
+import copy
 import torch
 from torch.utils.data.dataset import Dataset
 from torch.utils.data.dataloader import DataLoader
@@ -22,7 +23,7 @@ DataIndex = Dict[str, Dict[str, List[FunctionBody]]]
 
 class ASTGraphDataset(Dataset):
     def __init__(
-        self, data: list, data_index: DataIndex, max_adj: int, feature_len: int, pool_size: int
+        self, data: list, data_index: DataIndex, max_adj: int, feature_len: int, pool_size: int, environment: tuple = None
     ) -> None:
         super().__init__()
         self.data = data
@@ -33,7 +34,7 @@ class ASTGraphDataset(Dataset):
         self.max_adj = max_adj
         self.feature_len = feature_len
         self.pool_size = pool_size
-        self.eye = torch.eye(self.max_adj)
+        self.environment = environment
 
     def __len__(self):
         return self.length
@@ -108,8 +109,32 @@ class ASTGraphDataset(Dataset):
                 pool_function_name = random.choice(
                     list(self.data_index[pool_binary_name].keys())
                 )
-            pool.append(random.choice(self.data_index[pool_binary_name][pool_function_name]))
+            if self.environment:
+                functions = self.data_index[pool_binary_name][pool_function_name]
+                for func in functions:
+                    if func["arch"] == self.environment[0] and func["opt"] == self.environment[1]:
+                        pool.append(func)
+                        break
+                
+            else:
+                pool.append(random.choice(self.data_index[pool_binary_name][pool_function_name]))
 
+        return pool
+    
+    def _get_env_pool(self, binary_name: str, function_name: str):
+        pool = []
+        for p in range(self.pool_size):
+            pool_binary_name = random.choice(self.binary_list)
+            pool_function_name = random.choice(list(self.data_index[pool_binary_name].keys()))
+            while (
+                pool_binary_name == binary_name and pool_function_name == function_name
+            ):
+                pool_binary_name = random.choice(self.binary_list)
+                pool_function_name = random.choice(
+                    list(self.data_index[pool_binary_name].keys())
+                )
+            pool.append(random.choice(self.data_index[pool_binary_name][pool_function_name]))
+            
         return pool
 
     # @profile
@@ -157,6 +182,8 @@ class ASTGraphDataModule(pl.LightningDataModule):
         num_workers: int = 16,
         exclude: list = [],
         k_fold: int = 0,
+        exclusive_arch: str = None,
+        exclusive_opt: str = None,
     ) -> None:
         super().__init__()
         self.data_path = data_path
@@ -175,6 +202,11 @@ class ASTGraphDataModule(pl.LightningDataModule):
         self.feature_length = -1
 
         self.k_fold = k_fold
+        
+        if exclusive_arch and exclusive_opt:
+            self.environment = (exclusive_arch, exclusive_opt)
+        else:
+            self.environment = None
 
     def _load_dataset_info(self, data_path):
         with open(os.path.join(data_path, "metainfo.json"), "r") as f:
@@ -207,6 +239,60 @@ class ASTGraphDataModule(pl.LightningDataModule):
                     index.append(function_body["index"])
 
         return index
+    
+    def filter_environment_for_train(self, data_dict: dict, environment: tuple):
+        # Need to modify to support the binary mode
+        target_arch, target_opt = environment
+        filtered_dict = copy.deepcopy(data_dict)
+        for binary_name in data_dict:
+            for function_name in data_dict[binary_name]:
+                filtered_dict[binary_name][function_name] = [x for x in filtered_dict[binary_name][function_name] if x["arch"] != target_arch or x["opt"] != target_opt]
+        
+        bad_function_name_list = []
+        for binary_name in filtered_dict:
+            for function_name in filtered_dict[binary_name]:
+                if len(filtered_dict[binary_name][function_name]) < 2:
+                    bad_function_name_list.append(function_name)
+        for bad_function_name in bad_function_name_list:
+            del filtered_dict[binary_name][bad_function_name]
+            
+        bad_binary_name_list = []
+        for binary_name in filtered_dict:
+            if len(filtered_dict[binary_name]) < 2:
+                bad_binary_name_list.append(binary_name)
+        for bad_binary_name in bad_binary_name_list:
+            del filtered_dict[bad_binary_name]
+            
+        return filtered_dict
+    
+    def filter_environment_for_test(self, data_dict: dict, environment: tuple):
+        target_arch, target_opt = environment
+        # Pick out the functions that don't contain the target environment
+        # Need to modify to support the binary mode
+        kick_function_name_list = []
+        for binary_name in data_dict:
+            for function_name in data_dict[binary_name]:
+                is_kick = True
+                for function_body in data_dict[binary_name][function_name]:
+                    if function_body["arch"] == target_arch and function_body["opt"] == target_opt:
+                        is_kick = False
+                if is_kick:
+                    kick_function_name_list.append(function_name)
+                    
+        for kick_function_name in kick_function_name_list:
+            del data_dict[binary_name][kick_function_name]
+            
+        kick_binary_name_list = []
+        for binary_name in data_dict:
+            if len(data_dict[binary_name]) < 2:
+                kick_binary_name_list.append(binary_name)
+        for kick_binary_name in kick_binary_name_list:
+            del data_dict[kick_binary_name]
+
+        for binary_name in data_dict:
+            assert len(data_dict[binary_name]) >= self.pool_size + 1, f"Binary {binary_name} has less than {self.pool_size + 1} functions"
+        return data_dict
+        
 
     def prepare_data(self):
         if self.k_fold:
@@ -224,6 +310,10 @@ class ASTGraphDataModule(pl.LightningDataModule):
 
         # Assume train_set and test_set are the same
         _, _, index_test_data = self._load_pickle_data(test_path)
+        
+        if self.environment:
+            index_train_data = self.filter_environment_for_train(index_train_data, self.environment)
+            index_test_data = self.filter_environment_for_test(index_test_data, self.environment)
 
         # total_dataset = ASTGraphDataset(data, max_adj=min(adj_len, 1000), feature_len=feature_len, exclude=self.exclude)
 
@@ -250,6 +340,7 @@ class ASTGraphDataModule(pl.LightningDataModule):
             max_adj=self.max_length,
             feature_len=self.feature_length,
             pool_size=self.pool_size,
+            environment=self.environment
         )
 
     def train_dataloader(self):
@@ -276,7 +367,7 @@ class ASTGraphDataModule(pl.LightningDataModule):
 if __name__ == "__main__":
     a0 = time.time()
     p = ASTGraphDataModule(
-        data_path="/home/damaoooo/Downloads/plc_test/dataset/openplc", pool_size=15, num_workers=16, batch_size=1, k_fold=1
+        data_path="dataset/uboot_dataset", pool_size=15, num_workers=16, batch_size=1, k_fold=1, environment=("arm", "mix")
     )
     p.prepare_data()
     train = p.train_dataloader()
