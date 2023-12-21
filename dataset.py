@@ -15,6 +15,7 @@ import gc
 import psutil
 import time
 import numpy as np
+import redis
 
 import dgl
 
@@ -184,6 +185,7 @@ class ASTGraphDataModule(pl.LightningDataModule):
         k_fold: int = 0,
         exclusive_arch: str = None,
         exclusive_opt: str = None,
+        redis: bool = False,
     ) -> None:
         super().__init__()
         self.data_path = data_path
@@ -202,6 +204,8 @@ class ASTGraphDataModule(pl.LightningDataModule):
         self.feature_length = -1
 
         self.k_fold = k_fold
+        
+        self.redis = redis
         
         if exclusive_arch and exclusive_opt:
             self.environment = (exclusive_arch, exclusive_opt)
@@ -315,12 +319,8 @@ class ASTGraphDataModule(pl.LightningDataModule):
             index_train_data = self.filter_environment_for_train(index_train_data, self.environment)
             index_test_data = self.filter_environment_for_test(index_test_data, self.environment)
 
-        # total_dataset = ASTGraphDataset(data, max_adj=min(adj_len, 1000), feature_len=feature_len, exclude=self.exclude)
-
         self.max_length = adj_len
         self.feature_length = feature_len
-
-        # graphs = dgl.load_graphs(os.path.join(self.data_path, "dgl_graphs.dgl"))
         
         all_data, _ = dgl.load_graphs(
             os.path.join(self.data_path, "dgl_graphs.dgl")
@@ -363,6 +363,31 @@ class ASTGraphDataModule(pl.LightningDataModule):
             # prefetch_factor=16
         )
 
+
+class ASTGraphRedisDataModule(pl.LightningDataModule):
+    def __init__(
+        self,
+        data_name: str = "uboot",
+        pool_size: int = 0,
+        batch_size: int = 32,
+        num_workers: int = 16,
+        k_fold: int = 0,
+        data_path: str = "dataset/uboot_dataset",
+        
+    ):
+        super().__init__()
+        self.data_name = data_name
+        self.pool_size = pool_size
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.redis = redis.ConnectionPool(host="localhost", port=6379, db=0)
+        self.k_fold = k_fold
+        self.data_path = data_path
+        
+        
+    def prepare_data(self):
+        pass
+        
 
 if __name__ == "__main__":
     a0 = time.time()

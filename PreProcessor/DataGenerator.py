@@ -164,7 +164,7 @@ def dataset_size(dataset: dict):
             size += len(dataset[binary][function])
     return size
 
-def apply_dgl(dataset: dict, save_path: str, max_length: int):
+def apply_dgl(dataset: dict, save_path: str, max_length: int = 0, add_nodes: bool = False):
     file_index = {}
     dgl_array = []
     
@@ -196,6 +196,11 @@ def apply_dgl(dataset: dict, save_path: str, max_length: int):
                     continue
                 del function_body['adj']
                 del function_body['feature']
+                
+                if add_nodes:
+                    padding_length = max_length - graph.number_of_nodes()
+                    graph = dgl.add_nodes(graph, padding_length)
+                    graph = dgl.add_self_loop(graph)
                 # padding_length = max_length - graph.number_of_nodes()
                 # graph = dgl.add_nodes(graph, padding_length)
                 
@@ -432,7 +437,7 @@ class DataGeneratorMultiProcessing(DataGenerator):
         self.converter.save_op_list(self.converter.op_file)
         return list(missing_op)
 
-    def run(self, k_fold: int = 0):
+    def run(self, k_fold: int = 0, add_nodes: bool = False):
 
         if self.converter.read_op and os.path.exists(self.converter.op_file):
             self.converter.load_op_list(self.converter.op_file)
@@ -455,7 +460,7 @@ class DataGeneratorMultiProcessing(DataGenerator):
             all_data = load_pickle(os.path.join(self.save_path, 'origin_data.pkl'))
 
         all_data = filter_dataset(all_data)
-        data_index = apply_dgl(all_data, self.save_path, self.converter.max_length)
+        data_index = apply_dgl(all_data, self.save_path, self.converter.max_length, add_nodes=add_nodes)
         save_pickle(self.wrap_dataset(data_index), os.path.join(self.save_path, 'index_all.pkl'))
             
         if k_fold:

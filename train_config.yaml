@@ -17,6 +17,8 @@ hyper_parameters:
   exclusive_arch: null
   exclusive_opt: null
 
+  redis: false
+
 path:
   # data_path: dataset/coreutil
   data_path: dataset/uboot_dataset
