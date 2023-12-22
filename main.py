@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import argparse
 from lightning.pytorch import Trainer, seed_everything
 from model import PLModelForAST
-from dataset import ASTGraphDataModule
+from dataset import ASTGraphDataModule, ASTGraphRedisDataModule
 from lightning.pytorch.callbacks import ModelCheckpoint
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:100"
@@ -31,6 +31,8 @@ class TrainConfig:
     k_fold: int = 0
     exclusive_arch: str = None
     exclusive_opt: str = None
+    redis: bool = False
+    data_name: str = None
     
 
 def read_yaml_config(config_path: str):
@@ -60,6 +62,8 @@ def parse_args():
     argparser.add_argument("--seed", type=int, default=1)
     argparser.add_argument("--exclusive_arch", type=str, default=None)
     argparser.add_argument("--exclusive_opt", type=str, default=None)
+    argparser.add_argument("--redis", type=bool, default=False)
+    argparser.add_argument("--data_name", type=str, default=None)
     return argparser.parse_args()
 
 def read_config() -> TrainConfig:
@@ -77,6 +81,7 @@ def read_config() -> TrainConfig:
         
         config.data_path = yaml_config["path"]["data_path"]
         config.load_checkpoint = yaml_config["path"]["load_checkpoint"]
+        config.data_name = yaml_config['path']['data_name']
         
         config.batch_size = yaml_config["train"]["batch_size"]
         config.num_workers = yaml_config["train"]["num_workers"]
@@ -87,6 +92,8 @@ def read_config() -> TrainConfig:
         
         config.exclusive_arch = yaml_config["hyper_parameters"]["exclusive_arch"]
         config.exclusive_opt = yaml_config["hyper_parameters"]["exclusive_opt"]
+        
+        config.redis = yaml_config['hyper_parameters']['redis']
         
     else:
         config.alpha = args.alpha
@@ -109,6 +116,9 @@ def read_config() -> TrainConfig:
         
         config.exclusive_arch = args.exclusive_arch
         config.exclusive_opt = args.exclusive_opt
+        
+        config.redis = args.redis
+        config.data_name = args.data_name
         
     if args.max_epochs != 200:
         config.max_epochs = args.max_epochs
@@ -133,10 +143,21 @@ if __name__ == "__main__":
     
     print("Loading Dataset......")
     pool_size = config.pool_size
-    my_dataset = ASTGraphDataModule(batch_size=config.batch_size, num_workers=config.num_workers, data_path=config.data_path, pool_size=pool_size, k_fold=config.k_fold, exclusive_arch=config.exclusive_arch, exclusive_opt=config.exclusive_opt)
-    my_dataset.prepare_data()
+    if config.redis:
+        my_dataset = ASTGraphRedisDataModule(
+            data_name=config.data_name,
+            pool_size=pool_size,
+            batch_size=config.batch_size,
+            num_workers=config.num_workers,
+            k_fold=config.k_fold,
+            data_path=config.data_path,
+        )
+        my_dataset.prepare_data()
+    else:
+        my_dataset = ASTGraphDataModule(batch_size=config.batch_size, num_workers=config.num_workers, data_path=config.data_path, pool_size=pool_size, k_fold=config.k_fold, exclusive_arch=config.exclusive_arch, exclusive_opt=config.exclusive_opt)
+        my_dataset.prepare_data()
 
-    print("Dataset Loaded. adj length:", my_dataset.max_length, "feature length:", my_dataset.feature_length)
+        print("Dataset Loaded. adj length:", my_dataset.max_length, "feature length:", my_dataset.feature_length)
     
     load_checkpoint = config.load_checkpoint
     if load_checkpoint:
