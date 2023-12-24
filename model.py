@@ -114,10 +114,10 @@ class PLModelForAST(pl.LightningModule):
         
         
         # loss1 = torch.abs(F.cosine_similarity(latent_sample, latent_same, dim=-1) - 1).mean()
-        loss1 = similarity_score(latent_sample, latent_same).mean()
+        loss1 = 1 - similarity_score(latent_sample, latent_same).mean()
         # loss1 = (1 - abs(pearson_score(latent_sample, latent_same))).mean()
         
-        loss2 = 1 - similarity_score(latent_sample, latent_diff).mean()
+        loss2 = similarity_score(latent_sample, latent_diff).mean()
         
         # loss2 = F.cosine_embedding_loss(latent_sample, latent_diff, label - 1)
         # loss2 = abs(pearson_score(latent_sample, latent_diff)).mean()

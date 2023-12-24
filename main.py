@@ -173,6 +173,7 @@ if __name__ == "__main__":
 
     trainer = Trainer(
         accelerator="gpu",
+        strategy="ddp_fork",
         precision="16-mixed",
         max_epochs=config.max_epochs,
         # val_check_interval=0.3,
