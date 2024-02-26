@@ -1,3 +1,4 @@
+import random
 import torch
 import os
 import numpy as np
@@ -508,7 +509,7 @@ class InferenceModel:
             avg_recall.append(record_total[k][0] / record_total[k][1])
             recall_avg.append(np.mean(recall[k]))
             
-        print("avg_recall", avg_recall, '\n', "recall_avg", recall_avg, '\n')
+        print("recall_avg", recall_avg, '\n')
                     
     # @profile
     def get_function_file_set(self, dataset: dict, binary_name) -> Tuple[Dict[tuple, List[FunctionEmbedding]], Dict[tuple, List[str]]]:
@@ -613,10 +614,10 @@ class InferenceModel:
 if __name__ == '__main__':
 
     # multiprocessing.set_start_method(method='forkserver', force=True)
-
+    random.seed(1)
     model_config = ModelConfig()
     
-    with open("dataset/uboot_dataset/index_test_data_5.pkl", 'rb') as f:
+    with open("dataset/openplc/index_test_data_5.pkl", 'rb') as f:
         dataset = pickle.load(f)
         f.close()
         # bad_binary_list = []
@@ -626,14 +627,14 @@ if __name__ == '__main__':
         # for binary in bad_binary_list:
         #     del dataset['data'][binary]
     
-    graphs, _ = dgl.load_graphs("dataset/uboot_dataset/dgl_graphs.dgl")
+    graphs, _ = dgl.load_graphs("dataset/openplc/dgl_graphs.dgl")
 
-    model_config.model_path = "lightning_logs/version_1/checkpoints/epoch=19-step=2400.ckpt"
+    model_config.model_path = "lightning_logs/openplc_pearson_5/checkpoints/last.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 151
     model_config.max_length = 1000
     model_config.cuda = True
-    model_config.topK = 50
+    model_config.topK = 10
     model = InferenceModel(model_config)
     
     # model.AUC_average(dataset)
