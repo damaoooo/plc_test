@@ -121,16 +121,16 @@ class PLModelForAST(pl.LightningModule):
         loss2 = similarity_score(latent_sample, latent_diff).mean()
         
         # loss2 = F.cosine_embedding_loss(latent_sample, latent_diff, label - 1)
-        # loss2 = abs(pearson_score(latent_sample, latent_diff)).mean()
+        loss2 = abs(pearson_score(latent_sample, latent_diff)).mean()
         
         with torch.no_grad():
             # cosine_same = F.cosine_similarity(latent_same, latent_sample, dim=-1).detach().cpu().numpy() # [batch]
             # cosine_diff = F.cosine_similarity(latent_diff, latent_sample, dim=-1).detach().cpu().numpy() # [batch]
-            same = similarity_score(latent_same, latent_sample).detach().cpu().numpy()
-            # same = abs(pearson_score(latent_same, latent_sample)).detach().cpu().numpy()
+            # same = similarity_score(latent_same, latent_sample).detach().cpu().numpy()
+            same = abs(pearson_score(latent_same, latent_sample)).detach().cpu().numpy()
             
-            different = similarity_score(latent_diff, latent_sample).detach().cpu().numpy()
-            # different = abs(pearson_score(latent_diff, latent_sample)).detach().cpu().numpy()
+            # different = similarity_score(latent_diff, latent_sample).detach().cpu().numpy()
+            different = abs(pearson_score(latent_diff, latent_sample)).detach().cpu().numpy()
             # diff = cosine_same - cosine_diff
             diff = same - different
             is_right = (diff > 0).astype(int)
@@ -192,7 +192,7 @@ class PLModelForAST(pl.LightningModule):
             
         self.validation_acc_outputs = np.concatenate([self.validation_acc_outputs, ok], axis=-1)
         self.validation_diff_outputs = np.concatenate([self.validation_diff_outputs, diff], axis=-1)
-        
+        self.validation_loss_all_outputs = np.append(self.validation_loss_all_outputs, loss_all.item())
         torch.cuda.empty_cache()
         return loss_all
     

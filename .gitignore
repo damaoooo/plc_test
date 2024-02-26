@@ -51,5 +51,5 @@ result_*
 *.yml
 *.yaml
 checkpoints
+BSC_tmp/
 BSC_tmp
-check_memory

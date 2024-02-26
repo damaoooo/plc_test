@@ -1,9 +1,9 @@
 # Hyper-parameter for training
 train:
   seed: 1
-  max_epochs: 200
+  max_epochs: 100
   batch_size: 4
-  num_workers: 16
+  num_workers: 8
   pool_size: 50
   k_fold: 5
 
@@ -20,8 +20,8 @@ hyper_parameters:
   redis: false
 
 path:
-  data_path: dataset/openplc
+  # data_path: dataset/coreutil
   data_name: openplc
-  # data_path: dataset/openplc
-  # load_checkpoint: "lightning_logs/uboot_pearson_5/checkpoints/epoch=26-step=4023.ckpt"
+  data_path: dataset/openplc
+  # load_checkpoint: "lightning_logs/version_9/checkpoints/last.ckpt"
   load_checkpoint: ""

@@ -1,5 +1,6 @@
 import random
 from sklearn.metrics import accuracy_score
+import random
 import torch
 import os
 import numpy as np
@@ -525,7 +526,7 @@ class InferenceModel:
             avg_recall.append(record_total[k][0] / record_total[k][1])
             recall_avg.append(np.mean(recall[k]))
             
-        print("avg_recall", avg_recall, '\n', "recall_avg", recall_avg, '\n')
+        print("recall_avg", recall_avg, '\n')
                     
     # @profile
     def get_function_file_set(self, dataset: dict, binary_name) -> Tuple[Dict[tuple, List[FunctionEmbedding]], Dict[tuple, List[str]]]:
@@ -644,7 +645,7 @@ if __name__ == '__main__':
     random.seed(1)
     model_config = ModelConfig()
     
-    with open("dataset/openplc/index_test_data.pkl", 'rb') as f:
+    with open("dataset/openplc/index_test_data_5.pkl", 'rb') as f:
         dataset = pickle.load(f)
         f.close()
         # bad_binary_list = []
@@ -656,7 +657,7 @@ if __name__ == '__main__':
     
     graphs, _ = dgl.load_graphs("dataset/openplc/dgl_graphs.dgl")
 
-    model_config.model_path = "lightning_logs/openplc_pearson_1/checkpoints/last.ckpt"
+    model_config.model_path = "lightning_logs/openplc_pearson_5/checkpoints/last.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 151
     model_config.max_length = 1000
