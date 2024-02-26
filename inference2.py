@@ -1,3 +1,5 @@
+import random
+from sklearn.metrics import accuracy_score
 import torch
 import os
 import numpy as np
@@ -307,13 +309,12 @@ class InferenceModel:
         return result
     
     def judge(self, func: str, candidate: list):
+        # OpenPLC bad samples
+        for potential in ['CTU', 'RTU', 'CTD', 'CTUD']:
+            if potential in func:
+                return True
         if func in candidate:
             return True
-        else:
-            if "CTU" in func or "CTD" in func:
-                for x in candidate:
-                    if "CTU" in x or "CTD" in x:
-                        return True
         return False
     
     # @profile
@@ -471,6 +472,10 @@ class InferenceModel:
             for function_name in function_list1:
                 for function_body in dataset['data'][binary][function_name]:
                     pbar.update()
+                    
+                    if len(dataset['data'][binary][function_name]) < 2:
+                        continue
+                    
                     arch, opt = function_body['arch'], function_body['opt']
                     
                     if (arch, opt) not in candidate_pool:
@@ -484,15 +489,27 @@ class InferenceModel:
                     query_embedding = query_embedding.embedding
                     
                     mat2 = []
-                    for c in candidate_pool[(arch, opt)]:
+                    itself = random.choice(dataset['data'][binary][function_name])
+                    while itself == function_body:
+                        itself = random.choice(dataset['data'][binary][function_name])
+                    mat2.append(itself['embedding'])
+                    # mat2.append(function_body['embedding'])
+                    
+                    random_arch = (itself['arch'], itself['opt'])
+                    
+                    name_list = []
+                    for c in candidate_pool[random_arch]:
+                        if c.name == name:
+                            continue
                         c: FunctionEmbedding
                         mat2.append(c.embedding)
+                        name_list.append(c.name)
                     mat2 = np.vstack(mat2)
                     
                     # mm = get_cos_similar_multi(query_embedding, mat2)
                     # mm = similarity_score(query_embedding, mat2)
                     mm = get_pearson_score(query_embedding, mat2)
-                    rank_list = sorted(zip(mm.reshape(-1), candidate_name_list[(arch, opt)]), key=lambda x: x[0], reverse=True)[:self.config.topK]
+                    rank_list = sorted(zip(mm.reshape(-1), [function_name] + name_list), key=lambda x: x[0], reverse=True)[:self.config.topK]
                     for k in range(1, max_k + 1):
                         is_correct = self.judge(name, [x[1] for x in rank_list[:k]])
                         record_total[k][0] += int(is_correct)
@@ -548,31 +565,42 @@ class InferenceModel:
             scores.append(max(mm.reshape(-1)))
             labels.append(int(function1 in function2_name_list))
         return scores, labels
+    
+    def get_different_function_sample(self, dataset: dict, binary_name: str, function_name: str):
+        selected_binary_name = random.choice(list(dataset['data'].keys()))
+        selected_function_name = random.choice(list(dataset['data'][selected_binary_name].keys()))
+        while selected_binary_name == binary_name and selected_function_name == function_name:
+            selected_binary_name = random.choice(list(dataset['data'].keys()))
+            selected_function_name = random.choice(list(dataset['data'][selected_binary_name].keys()))
+        return dataset['data'][selected_binary_name][selected_function_name]
          
-    def AUC(self, dataset: dict):
-        arches = ['gcc', 'arm-linux-gnueabi', 'powerpc-linux-gnu', 'mips-linux-gnu']
-        opts = ["-O0", "-O1", "-O2", "-O3"]
+    def AUC(self, dataset: dict, graphs: List[dgl.DGLGraph]):
         
         scores = []
         labels = []
         
+        dataset = self.merge_dgl_dict(dataset, graphs)
+        
         for binary_name in dataset['data']:
-            for arch1 in arches:
-                for opt1 in opts:
-                    for arch2 in arches:
-                        for opt2 in opts:
-                            try:
-
-                                function_list1 = self.get_function_name_list(dataset['data'][binary_name])
-                                function_list2 = self.get_function_name_list(dataset['data'][binary_name])
-                                with torch.no_grad():
-                                    score, label = self.ROC_pair(function_list1=function_list1, function_list2=function_list2)
-                                    
-                                scores.extend(score)
-                                labels.extend(label)
-                                
-                            except ValueError:
-                                print("No that Architecture and Opt_level")
+            for function_name in dataset['data'][binary_name]:
+                if len(dataset['data'][binary_name][function_name]) < 2:
+                    continue
+                for i in range(len(dataset['data'][binary_name][function_name])):
+                    this_embedding = dataset['data'][binary_name][function_name][i]['embedding']
+                    
+                    candidates = dataset['data'][binary_name][function_name].copy()
+                    del candidates[i]
+                    same = random.choice(candidates)
+                    diff = random.choice(self.get_different_function_sample(dataset, binary_name, function_name))
+                    same_embedding = same['embedding']
+                    diff_embedding = diff['embedding']
+                    
+                    same_score = similarity_score(this_embedding, same_embedding)
+                    diff_score = similarity_score(this_embedding, diff_embedding)
+                    
+                    scores.extend([same_score, diff_score])
+                    labels.extend([1, 0])
+        
         roc_score = roc_auc_score(y_true=labels, y_score=scores)
         print(roc_score)
         return roc_score
@@ -613,10 +641,10 @@ class InferenceModel:
 if __name__ == '__main__':
 
     # multiprocessing.set_start_method(method='forkserver', force=True)
-
+    random.seed(1)
     model_config = ModelConfig()
     
-    with open("dataset/uboot_dataset/index_test_data_5.pkl", 'rb') as f:
+    with open("dataset/openplc/index_test_data.pkl", 'rb') as f:
         dataset = pickle.load(f)
         f.close()
         # bad_binary_list = []
@@ -626,19 +654,20 @@ if __name__ == '__main__':
         # for binary in bad_binary_list:
         #     del dataset['data'][binary]
     
-    graphs, _ = dgl.load_graphs("dataset/uboot_dataset/dgl_graphs.dgl")
+    graphs, _ = dgl.load_graphs("dataset/openplc/dgl_graphs.dgl")
 
-    model_config.model_path = "lightning_logs/version_1/checkpoints/epoch=19-step=2400.ckpt"
+    model_config.model_path = "lightning_logs/openplc_pearson_1/checkpoints/last.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 151
     model_config.max_length = 1000
     model_config.cuda = True
-    model_config.topK = 50
+    model_config.topK = 10
     model = InferenceModel(model_config)
     
     # model.AUC_average(dataset)
     res = model.test_recall_K_file(dataset, graphs, max_k=model_config.topK)
-    # res = model.test_recall_K_pool(dataset, graphs, max_k=10)
+    roc = model.AUC(dataset, graphs)
+    
     
     # with open("./recall_allstar.pkl", 'wb') as f:
     #     pickle.dump(res, f)

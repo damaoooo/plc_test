@@ -15,8 +15,7 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 
 if __name__ == "__main__":
     torch.set_float32_matmul_precision('medium')
-    
-    my_dataset = ASTGraphDataModule(data_path="/home/damaoooo/Project/plc/dataset/!total.pkl", batch_size=1, num_workers=16)
+    my_dataset = ASTGraphDataModule(data_path="/home/damaoooo/Downloads/plc_test/dataset/openplc", batch_size=4, num_workers=4, pool_size=50, k_fold=5)
     my_dataset.prepare_data()
 
     # print(my_dataset.max_length)
@@ -30,7 +29,7 @@ if __name__ == "__main__":
         "n_heads": tune.choice([4, 6, 8, 10]),
         "dropout": tune.choice([0, 0.2, 0.4, 0.6, 0.8]),
         "alpha": tune.choice([0, 0.2, 0.4, 0.6, 0.8]),
-        "lr": tune.loguniform(1e-6, 1e-3)
+        "lr": tune.loguniform(1e-6, 1e-3),
     }
     
     logger = TensorBoardLogger(save_dir=os.getcwd(), name="tune-AST", version='.')
@@ -40,22 +39,22 @@ if __name__ == "__main__":
     lightning_config = (
         LightningConfigBuilder()
         .module(cls=PLModelForAST, config=config)
-        .trainer(max_epochs=max_epoches, accelerator="gpu", logger=logger, precision="16-mixed").ddp_strategy(find_unused_parameters=True)
+        .trainer(max_epochs=max_epoches, accelerator="gpu", logger=logger, precision="16-mixed")
         .fit_params(datamodule=my_dataset)
-        .checkpointing(monitor="val_acc", save_top_k=2, mode="max")
+        .checkpointing(monitor="val_loss_all", save_top_k=2, mode="min")
         .build()
     )
     
     run_config = RunConfig(
         checkpoint_config=CheckpointConfig(
             num_to_keep=2,
-            checkpoint_score_attribute="val_acc",
-            checkpoint_score_order="max"
+            checkpoint_score_attribute="val_loss_all",
+            checkpoint_score_order="min"
         ),
     )
     
     scheduler = ASHAScheduler(max_t=max_epoches, grace_period=1, reduction_factor=2)
-    scaling_config = ScalingConfig(num_workers=1, use_gpu=True, resources_per_worker={"CPU":16, "GPU": 1})
+    scaling_config = ScalingConfig(num_workers=1, use_gpu=True, resources_per_worker={"CPU":5, "GPU": 1})
     lightning_trainer = LightningTrainer(scaling_config=scaling_config, run_config=run_config)
     
     tuner = tune.Tuner(
@@ -73,6 +72,6 @@ if __name__ == "__main__":
     )
     
     results = tuner.fit()
-    best_result = results.get_best_result(metric="val_acc", mode="max")
+    best_result = results.get_best_result(metric="val_loss_all", mode="min")
     print(best_result)
 

@@ -1,6 +1,6 @@
 import os
 import torch
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch.nn.functional as F
 from filelock import FileLock
 from torchmetrics import Accuracy
