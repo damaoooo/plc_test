@@ -115,10 +115,10 @@ class PLModelForAST(pl.LightningModule):
         
         
         # loss1 = torch.abs(F.cosine_similarity(latent_sample, latent_same, dim=-1) - 1).mean()
-        loss1 = 1 - similarity_score(latent_sample, latent_same).mean()
-        # loss1 = (1 - abs(pearson_score(latent_sample, latent_same))).mean()
+        # loss1 = 1 - similarity_score(latent_sample, latent_same).mean()
+        loss1 = (1 - abs(pearson_score(latent_sample, latent_same))).mean()
         
-        loss2 = similarity_score(latent_sample, latent_diff).mean()
+        # loss2 = similarity_score(latent_sample, latent_diff).mean()
         
         # loss2 = F.cosine_embedding_loss(latent_sample, latent_diff, label - 1)
         loss2 = abs(pearson_score(latent_sample, latent_diff)).mean()
@@ -145,8 +145,8 @@ class PLModelForAST(pl.LightningModule):
             pool_latents = pool_latents.view(batch_size, -1, output_size) # [batch_size, pool_size, output_size]
             pool_latents = torch.concat([pool_latents, latent_same.unsqueeze(1)], dim=1)
             # similarity = F.cosine_similarity(latent_sample.unsqueeze(1), pool_latents, dim=-1)
-            similarity = similarity_score(latent_sample.unsqueeze(1), pool_latents)
-            # similarity = abs(pearson_score(latent_sample.unsqueeze(1), pool_latents))
+            # similarity = similarity_score(latent_sample.unsqueeze(1), pool_latents)
+            similarity = abs(pearson_score(latent_sample.unsqueeze(1), pool_latents))
             
             loss3 = F.cross_entropy(similarity, torch.tensor([self.pool_size] * batch_size, dtype=torch.long).to(device=self.device))
             
