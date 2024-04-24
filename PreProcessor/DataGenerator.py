@@ -12,6 +12,7 @@ from GraphConverter import Converter
 
 import dgl
 import torch
+import json
 
 def purify_cpg_json(cpg_json: dict):
     return {"adj": cpg_json['adj'], "feature": cpg_json['feature'], "name": cpg_json['name']}
@@ -325,6 +326,8 @@ class DataGeneratorMultiProcessing(DataGenerator):
 
     def generate_data_reduce(self):
         all_data = {}
+        
+        
         while True:
             if (not self.is_finish.empty()) and self.convert_queue.empty():
                 self.is_finish.get()
@@ -332,7 +335,7 @@ class DataGeneratorMultiProcessing(DataGenerator):
             if self.convert_queue.empty():
                 continue
             cpg_json, binary_name = self.convert_queue.get()
-
+            
             function_name = cpg_json['name']
 
             if binary_name not in all_data:
@@ -346,7 +349,7 @@ class DataGeneratorMultiProcessing(DataGenerator):
         print("Finish reducing, saving the pkl file...")
         save_pickle(all_data, os.path.join(self.save_path, 'origin_data.pkl'))
 
-    def generate_data_map(self, file_path, opt, arch, binary):
+    def generate_data_map(self, file_path, opt, arch, binary, symbol_table: dict = {}):
         cpg_json = self.converter.convert_file(file_path, binary_name=binary, opt=opt, arch=arch)
         if not cpg_json:
             return None
@@ -371,6 +374,7 @@ class DataGeneratorMultiProcessing(DataGenerator):
 
         with multiprocessing.Pool(self.cores - 1) as pool:
             for file_path, opt, arch, binary in self.file_tree:
+                
                 for c_dot_file in os.listdir(file_path):
                     c_dot_filename = os.path.join(file_path, c_dot_file)
                     pool.apply_async(self.generate_data_map, args=(c_dot_filename, opt, arch, binary), callback=update)
@@ -379,7 +383,7 @@ class DataGeneratorMultiProcessing(DataGenerator):
             pool.join()
         self.is_finish.put(True)
         
-        print("Waiting for reducer to finish...")
+        # print("Waiting for reducer to finish...")
         # all_data = reduce_result.get()
         reduce_pool.close()
         reduce_pool.join()

@@ -5,7 +5,7 @@ import pickle
 from dataclasses import dataclass
 import argparse
 from lightning.pytorch import Trainer, seed_everything
-from model import PLModelForAST
+from model import PLModelForAST, FineTuneLearningRateFinder
 from dataset import ASTGraphDataModule, ASTGraphRedisDataModule
 from lightning.pytorch.callbacks import ModelCheckpoint
 
@@ -33,6 +33,7 @@ class TrainConfig:
     exclusive_opt: str = None
     redis: bool = False
     data_name: str = None
+    mode: str = "file"
     
 
 def read_yaml_config(config_path: str):
@@ -64,6 +65,7 @@ def parse_args():
     argparser.add_argument("--exclusive_opt", type=str, default=None)
     argparser.add_argument("--redis", type=bool, default=False)
     argparser.add_argument("--data_name", type=str, default=None)
+    argparser.add_argument("--mode", type=str, default="file")
     return argparser.parse_args()
 
 def read_config() -> TrainConfig:
@@ -72,6 +74,7 @@ def read_config() -> TrainConfig:
     if args.config is not None:
         yaml_config = read_yaml_config(args.config)
         # TODO: Read yaml file and update config
+        print("Reading Configuration From YAML ......")
         config.alpha = yaml_config['hyper_parameters']["alpha"]
         config.lr = yaml_config['hyper_parameters']["lr"]
         config.dropout = yaml_config['hyper_parameters']["dropout"]
@@ -94,6 +97,7 @@ def read_config() -> TrainConfig:
         config.exclusive_opt = yaml_config["hyper_parameters"]["exclusive_opt"]
         
         config.redis = yaml_config['hyper_parameters']['redis']
+        config.mode = yaml_config['hyper_parameters']['mode']
         
     else:
         config.alpha = args.alpha
@@ -119,6 +123,7 @@ def read_config() -> TrainConfig:
         
         config.redis = args.redis
         config.data_name = args.data_name
+        config.mode = args.mode
         
     if args.max_epochs != 200:
         config.max_epochs = args.max_epochs
@@ -131,6 +136,9 @@ def read_config() -> TrainConfig:
         
     if args.k_fold != 0:
         config.k_fold = args.k_fold
+        
+    if args.mode != "file":
+        config.mode = args.mode
         
     return config
 
@@ -162,11 +170,11 @@ if __name__ == "__main__":
     load_checkpoint = config.load_checkpoint
     if load_checkpoint:
         print("Loading Checkpoint......")
-        my_model = PLModelForAST(adj_length=my_dataset.max_length, in_features=my_dataset.feature_length, lr=4e-4, pool_size=pool_size
+        my_model = PLModelForAST(adj_length=my_dataset.max_length, in_features=my_dataset.feature_length, lr=4e-3, pool_size=pool_size
                              , alpha=0.2, dropout=0.3, hidden_features=64, n_heads=6, output_features=128, seed=random_seed, data_path=config.data_path + str(config.k_fold)).load_from_checkpoint(load_checkpoint)
         print("Checkpoint Loaded.")
     else:
-        my_model = PLModelForAST(adj_length=my_dataset.max_length, in_features=my_dataset.feature_length, lr=4e-4, pool_size=pool_size
+        my_model = PLModelForAST(adj_length=my_dataset.max_length, in_features=my_dataset.feature_length, lr=4e-3, pool_size=pool_size
                                 , alpha=0.2, dropout=0.3, hidden_features=64, n_heads=6, output_features=128, seed=random_seed, data_path=config.data_path + str(config.k_fold))
 
     checkpoint_callback = ModelCheckpoint(save_top_k=3, monitor="val_loss_all", mode="min",  save_on_train_epoch_end=True, save_last=True)
@@ -179,6 +187,7 @@ if __name__ == "__main__":
         # val_check_interval=0.3,
         callbacks=[checkpoint_callback],
         # logger=None
+        # gradient_clip_val=0.5,
     )
     
     trainer.fit(model=my_model, train_dataloaders=my_dataset, )

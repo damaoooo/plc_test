@@ -55,3 +55,10 @@ BSC_tmp/
 BSC_tmp
 check_memory
 check_memory/
+
+BSC_reproduce/*
+BSC_large/*
+BSC_tmp/*
+*.csv
+
+!BSC_reproduce/*.py

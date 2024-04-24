@@ -9,7 +9,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 import lightning.pytorch as pl
 # import pytorch_lightning as pl
-
+from lightning.pytorch.callbacks import LearningRateFinder
 import dgl
 import dgl.nn as dglnn
 
@@ -18,6 +18,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from dgl.nn.pytorch.conv import GATv2Conv
 from dgl.nn.pytorch.glob import Set2Set
+from audtorch.metrics.functional import pearsonr
 
 def similarity_score(x, y):
     distance = torch.norm(x - y, dim=-1)
@@ -25,9 +26,15 @@ def similarity_score(x, y):
     return score
 
 def pearson_score(a, b):
-    a_mu = (a - a.mean(dim=-1).unsqueeze(-1))
-    b_mu = (b - b.mean(dim=-1).unsqueeze(-1))
-    return ((a_mu * b_mu).mean(dim=-1) / (a.std(correction=0, dim=-1) * b.std(correction=0, dim=-1)))
+    
+    if a.shape == b.shape:
+        return pearsonr(a, b)
+    else:
+        if len(a.shape) == 1:
+            a = a.repeat(b.shape[0], 1)
+        else:
+            b = b.repeat(a.shape[0], 1)
+        return pearsonr(a, b)
     
 
 class MyModel(nn.Module):
@@ -63,6 +70,17 @@ class MyModel(nn.Module):
         h = self.nlp(h.view(batch_size, -1))
         return h
 
+class FineTuneLearningRateFinder(LearningRateFinder):
+    def __init__(self, milestones, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.milestones = milestones
+
+    def on_fit_start(self, *args, **kwargs):
+        return
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        if trainer.current_epoch in self.milestones or trainer.current_epoch == 0:
+            self.lr_find(trainer, pl_module)
     
 
 class PLModelForAST(pl.LightningModule):
@@ -89,6 +107,7 @@ class PLModelForAST(pl.LightningModule):
         self.validation_diff_outputs = np.array([])
         self.validation_loss_all_outputs = np.array([])
         self.validation_loss_1v1_outputs = np.array([])
+        self.validation_loss_pool_outputs = np.array([])
         
         self.training_acc_outputs = np.array([])
         self.training_diff_outputs = np.array([])
@@ -96,6 +115,7 @@ class PLModelForAST(pl.LightningModule):
         self.save_hyperparameters()
 
     def forward(self, x):
+        torch.cuda.empty_cache()
         if self.pool_size:
             sample, same, diff, label, pool = x['sample'], x['same_sample'], x['different_sample'], x['label'], x['pool']
         else:
@@ -115,25 +135,29 @@ class PLModelForAST(pl.LightningModule):
         
         
         # loss1 = torch.abs(F.cosine_similarity(latent_sample, latent_same, dim=-1) - 1).mean()
-        # loss1 = 1 - similarity_score(latent_sample, latent_same).mean()
-        loss1 = (1 - abs(pearson_score(latent_sample, latent_same))).mean()
+        loss1 = 1 - similarity_score(latent_sample, latent_same).mean()
+        # loss1 = (1 - abs(pearson_score(latent_sample, latent_same))).mean()
         
-        # loss2 = similarity_score(latent_sample, latent_diff).mean()
+        loss2 = similarity_score(latent_sample, latent_diff).mean()
         
         # loss2 = F.cosine_embedding_loss(latent_sample, latent_diff, label - 1)
-        loss2 = abs(pearson_score(latent_sample, latent_diff)).mean()
+        # loss2 = abs(pearson_score(latent_sample, latent_diff)).mean()
         
         with torch.no_grad():
+            loss_single = (loss1 + loss2).item()
             # cosine_same = F.cosine_similarity(latent_same, latent_sample, dim=-1).detach().cpu().numpy() # [batch]
             # cosine_diff = F.cosine_similarity(latent_diff, latent_sample, dim=-1).detach().cpu().numpy() # [batch]
-            # same = similarity_score(latent_same, latent_sample).detach().cpu().numpy()
-            same = abs(pearson_score(latent_same, latent_sample)).detach().cpu().numpy()
+            same = similarity_score(latent_same, latent_sample).detach().cpu().numpy()
+            # same = abs(pearson_score(latent_same, latent_sample)).detach().cpu().numpy()
             
-            # different = similarity_score(latent_diff, latent_sample).detach().cpu().numpy()
-            different = abs(pearson_score(latent_diff, latent_sample)).detach().cpu().numpy()
+            different = similarity_score(latent_diff, latent_sample).detach().cpu().numpy()
+            # different = abs(pearson_score(latent_diff, latent_sample)).detach().cpu().numpy()
             # diff = cosine_same - cosine_diff
             diff = same - different
             is_right = (diff > 0).astype(int)
+            
+            diff = np.mean(diff)
+            is_right = np.mean(is_right)
         
         if self.pool_size:
             batch_size, output_size = latent_same.shape[0], latent_same.shape[1]
@@ -145,55 +169,46 @@ class PLModelForAST(pl.LightningModule):
             pool_latents = pool_latents.view(batch_size, -1, output_size) # [batch_size, pool_size, output_size]
             pool_latents = torch.concat([pool_latents, latent_same.unsqueeze(1)], dim=1)
             # similarity = F.cosine_similarity(latent_sample.unsqueeze(1), pool_latents, dim=-1)
-            # similarity = similarity_score(latent_sample.unsqueeze(1), pool_latents)
-            similarity = abs(pearson_score(latent_sample.unsqueeze(1), pool_latents))
+            similarity = similarity_score(latent_sample.unsqueeze(1), pool_latents)
+            # similarity = abs(pearson_score(latent_sample.repeat(self.pool_size).reshape(), pool_latents))
+            
+            # similarity = torch.stack([pearson_score(latent_sample[i], pool_latents[i]).abs() for i in range(batch_size)]).reshape(batch_size, -1)
             
             loss3 = F.cross_entropy(similarity, torch.tensor([self.pool_size] * batch_size, dtype=torch.long).to(device=self.device))
             
-            return (loss1 + loss2 + loss3, (loss1 + loss2).item(), is_right, diff)
+            return (loss1 + loss2 + loss3, loss_single, loss3.item(), is_right, diff)
 
-        return (loss1 + loss2, is_right, diff)
-    
-    def get_full_embedding(self, data):
-        with torch.no_grad():
-            res = []
-            name_list = []
-            for adj, fea, name in data:
-                adj = adj.to(device=self.device)
-                fea = fea.to(device=self.device)
-                embedding = self.my_model(adj, fea)
-                res.append(embedding.squeeze(0).detach().cpu().numpy())
-                name_list.append(name)
-        res = np.vstack(res)
-        return res, name_list
+        return (loss1 + loss2, 0., is_right, diff)
 
 
     def training_step(self, batch, batch_idx):
         if self.pool_size:
-            loss_all, loss_1v1, ok, diff = self.forward(batch)
+            loss_all, loss_1v1, loss_pool, ok, diff = self.forward(batch)
             self.log("train_loss_1v1", loss_1v1, on_step=True, on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
+            self.log("train_loss_pool", loss_pool, on_step=True, on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
+            
         else:
             loss_all, ok, diff = self.forward(batch)
   
         self.log("train_loss_all", loss_all.item(), on_step=True, on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
         self.log("train_diff", np.mean(diff), on_step=True, on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
-        self.training_acc_outputs = np.concatenate([self.training_acc_outputs, ok], axis=-1)
-        self.training_diff_outputs = np.concatenate([self.training_diff_outputs, diff], axis=-1)
-        torch.cuda.empty_cache()
+        self.training_acc_outputs = np.append(self.training_acc_outputs, ok)
+        self.training_diff_outputs = np.append(self.training_diff_outputs, diff)
         return loss_all
     
     def validation_step(self, batch, batch_idx):
         if self.pool_size:
-            loss_all, loss_1v1, ok, diff = self.forward(batch)
+            loss_all, loss_1v1, loss_pool, ok, diff = self.forward(batch)
             self.validation_loss_1v1_outputs = np.append(self.validation_loss_1v1_outputs, loss_1v1)
-            self.validation_loss_all_outputs = np.append(self.validation_loss_all_outputs, loss_all.item() - loss_1v1)
+            self.validation_loss_pool_outputs = np.append(self.validation_loss_pool_outputs, loss_pool)
+            self.validation_loss_all_outputs = np.append(self.validation_loss_all_outputs, loss_all.item())
+            
         else:
             loss_all, ok, diff = self.forward(batch)
             
-        self.validation_acc_outputs = np.concatenate([self.validation_acc_outputs, ok], axis=-1)
-        self.validation_diff_outputs = np.concatenate([self.validation_diff_outputs, diff], axis=-1)
-        self.validation_loss_all_outputs = np.append(self.validation_loss_all_outputs, loss_all.item())
-        torch.cuda.empty_cache()
+        self.validation_acc_outputs = np.append(self.validation_acc_outputs, ok)
+        self.validation_diff_outputs = np.append(self.validation_diff_outputs, diff)
+
         return loss_all
     
     def on_validation_epoch_end(self):
@@ -214,6 +229,11 @@ class PLModelForAST(pl.LightningModule):
             loss_all = np.mean(self.validation_loss_all_outputs)
             self.log("val_loss_all", loss_all.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
             self.validation_loss_all_outputs = np.array([])
+
+            loss_pool = np.mean(self.validation_loss_pool_outputs)
+            self.log("val_loss_pool", loss_pool.item(), on_epoch=True, logger=True, sync_dist=True, prog_bar=True)
+            self.validation_loss_pool_outputs = np.array([])
+            
         
     def on_train_epoch_end(self):
         acc = np.mean(self.training_acc_outputs)

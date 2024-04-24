@@ -303,8 +303,128 @@ class InferenceModel:
                     pbar.update()
         return dataset
     
+    def test_strip_recall_K(self, dataset_origin: dict, dataset_strip: dict, graph_strip: list, max_k: int = 10, n_candidates: int = 100, mode: str = 'pool', cache_path: str = ""):
+        recall = {x: [] for x in range(1, max_k + 1)}
+        self.config.topK = max_k
+        
+        
+        if cache_path:
+            if os.path.exists(cache_path):
+                with open(cache_path, 'rb') as f:
+                    dataset_strip = pickle.load(f)
+                    f.close()
+            else:
+                dataset_strip = self.merge_dgl_dict(dataset_strip, graph_strip)
+                with open(cache_path, 'wb') as f:
+                    pickle.dump(dataset_strip, f)
+                    f.close()
+        else:
+            dataset_strip = self.merge_dgl_dict(dataset_strip, graph_strip)
+        
+        pbar = tqdm(total=self.get_dataset_function_num(dataset_strip))
+        
+        length = []
+        
+        for binary in dataset_origin['data']:
+            record_total = {x: [0, 0] for x in range(1, max_k + 1)}
+            if binary not in dataset_strip['data']:
+                continue
+            candidate_pool, candidate_name_list = self.get_function_file_set(dataset=dataset_strip, binary_name=binary)
+            
+            function_list1 = dataset_origin['data'][binary].keys()
+            for function_name in function_list1:
+                pbar.update()
+                
+                if len(dataset_origin['data'][binary][function_name]) < 2:
+                    continue
+                
+                if function_name.startswith("function_"):
+                    continue
+                                
+                if function_name not in dataset_strip['data'][binary]:
+                    for k in range(1, max_k + 1):
+                        record_total[k][1] += 1
+                    continue
+                
+                if len(dataset_strip['data'][binary][function_name]) < 2:
+                    continue
+                
+                for function_body in dataset_origin['data'][binary][function_name]:
+
+                    left_function = random.choice(dataset_strip['data'][binary][function_name])
+                    right_function = left_function
+                    
+                    random_count = 0
+                    while right_function['opt'] == left_function['opt'] or right_function['arch'] == left_function['arch']:
+                        right_function = random.choice(dataset_strip['data'][binary][function_name])
+                        random_count += 1
+                        if random_count > 100:
+                            break
+                        
+                    if random_count > 100:
+                        continue
+                    
+                    left_embedding = left_function['embedding']
+                    right_embedding = right_function['embedding']
+                    
+                    arch, opt = function_body['arch'], function_body['opt']
+                    function_names = []
+                    function_candidates = []
+                    random_count = 0
+                    
+                    for i in range(n_candidates):
+                        arch, opt = random.choice(list(candidate_pool.keys()))
+                        while arch == function_body['arch'] or opt == function_body['opt']:
+                            arch, opt = random.choice(list(candidate_pool.keys()))
+                            random_count += 1
+                            if random_count > 100:
+                                break
+                        if random_count > 100:
+                            break
+                        selected = random.choice(candidate_pool[(arch, opt)])
+                        function_names.append(selected.name)
+                        function_candidates.append(selected.embedding)
+                    
+                    if random_count > 100:
+                        # No right function, continue
+                        continue
+                        
+                    function_candidates.append(right_embedding)
+                    function_names.append(function_name)
+                    
+                    function_candidates = np.vstack(function_candidates)
+                    length.append(len(function_candidates))
+                    
+                    # mm = similarity_score(left_embedding, function_candidates)
+                    mm = get_pearson_score(left_embedding, function_candidates)
+                    rank_list = sorted(zip(mm.reshape(-1), function_names), key=lambda x: x[0], reverse=True)[:self.config.topK]
+                    for k in range(1, max_k + 1):
+                        is_correct = self.judge(right_function['name'], [x[1] for x in rank_list[:k]])
+                        record_total[k][0] += int(is_correct)
+                        record_total[k][1] += 1
+            
+            success_result = True
+            for k in range(1, max_k + 1):
+                if record_total[k][1] == 0:
+                    success_result = False
+                    break
+                
+            if not success_result:
+                continue
+            
+            for k in range(1, max_k + 1):
+                recall[k].append(record_total[k][0] / record_total[k][1])
+
+            
+        recall_avg = []
+        for k in range(1, max_k + 1):
+            recall_avg.append(np.mean(recall[k]))
+        avg_candidate = np.mean(length)
+        print("recall_avg", recall_avg, "avg candidates", avg_candidate,'\n')
+        return recall_avg            
+
     # @profile
-    def test_recall_K_file(self, dataset:dict, graph: list, max_k: int = 10, exclusive_env: tuple = None):
+    def test_recall_K(self, dataset:dict, graph: list, max_k: int = 10, n_candidates: int = 100, mode: str = 'pool', exclusive_env: tuple = None):
         recall = {x: [] for x in range(1, max_k + 1)}
         self.config.topK = max_k
         
@@ -312,9 +432,10 @@ class InferenceModel:
                 
         pbar = tqdm(total=self.get_dataset_function_num(dataset))
         
-        record_total = {x: [0, 0] for x in range(1, max_k + 1)}
         
+        length = []
         for binary in dataset['data']:
+            record_total = {x: [0, 0] for x in range(1, max_k + 1)}
             print("Generating Function Pool for {}".format(binary))
             candidate_pool, candidate_name_list = self.get_function_file_set(dataset=dataset, binary_name=binary)
             # return 
@@ -339,44 +460,82 @@ class InferenceModel:
                     query_embedding = query_embedding.embedding
                     
                     mat2 = []
-                    itself = random.choice(dataset['data'][binary][function_name])
-                    while itself == function_body:
-                        itself = random.choice(dataset['data'][binary][function_name])
-                    mat2.append(itself['embedding'])
-                    # mat2.append(function_body['embedding'])
-                    
-                    random_arch = (itself['arch'], itself['opt'])
-                    
                     name_list = []
-                    for c in candidate_pool[random_arch]:
-                        if c.name == name:
-                            continue
-                        c: FunctionEmbedding
-                        mat2.append(c.embedding)
-                        name_list.append(c.name)
+                    
+                    itself = random.choice(dataset['data'][binary][function_name])
+                    random_count = 0
+                    while itself['opt'] == function_body['opt'] and itself['arch'] == function_body['arch']:
+                        itself = random.choice(dataset['data'][binary][function_name])
+                        random_count += 1
+                        if random_count > 100:
+                            break
+                        
+                    if random_count > 100:
+                        continue
+
+                    random_arch = (itself['arch'], itself['opt'])
+                    # mat2.append(function_body['embedding'])
+                    if mode == "file":
+                        random_arch = (itself['arch'], itself['opt'])
+                        
+                        for c in candidate_pool[random_arch]:
+                            if c.name == name:
+                                continue
+                            c: FunctionEmbedding
+                            mat2.append(c.embedding)
+                            name_list.append(c.name)
+                            
+                        if n_candidates:
+                            if len(mat2) > n_candidates:
+                                mat2 = random.sample(mat2, n_candidates)
+                                name_list = random.sample(name_list, n_candidates)
+                    else:
+                        assert n_candidates > 0, "If you choose pool mode, you must specify the number of candidates"
+                        for i in range(n_candidates):
+                            arch, opt = random.choice(list(candidate_pool.keys()))
+                            while arch == function_body['arch'] or opt == function_body['opt']:
+                                arch, opt = random.choice(list(candidate_pool.keys()))
+                            selected = random.choice(candidate_pool[(arch, opt)])
+                            name_list.append(selected.name)
+                            mat2.append(selected.embedding)
+                        
+                    mat2.append(itself['embedding'])
+                    
+                    mat2 = mat2[::-1]
+                    name_list = name_list[::-1]
+                    
                     mat2 = np.vstack(mat2)
+                    length.append(len(mat2))
                     
                     # mm = get_cos_similar_multi(query_embedding, mat2)
                     # mm = similarity_score(query_embedding, mat2)
                     mm = get_pearson_score(query_embedding, mat2)
-                    rank_list = sorted(zip(mm.reshape(-1), [function_name] + name_list), key=lambda x: x[0], reverse=True)[:self.config.topK]
+                    rank_list = sorted(zip(mm.reshape(-1),  [function_name] + name_list), key=lambda x: x[0], reverse=True)[:self.config.topK]
                     for k in range(1, max_k + 1):
                         is_correct = self.judge(name, [x[1] for x in rank_list[:k]])
                         record_total[k][0] += int(is_correct)
                         record_total[k][1] += 1
 
+            success_result = True
+            for k in range(1, max_k + 1):
+                if record_total[k][1] == 0:
+                    success_result = False
+                    break
+            if not success_result:
+                continue
+            
             for k in range(1, max_k + 1):
                 recall[k].append(record_total[k][0] / record_total[k][1])
             # return 
         
-        avg_recall = []
         recall_avg = []
         for k in range(1, max_k + 1):
-            avg_recall.append(record_total[k][0] / record_total[k][1])
             recall_avg.append(np.mean(recall[k]))
+        avg_candidate = np.mean(length)
             
-        print("avg_recall", avg_recall, '\n', "recall_avg", recall_avg, '\n')
-                    
+        print("recall_avg", recall_avg, "avg candidates", avg_candidate,'\n')
+        return recall_avg
+    
     # @profile
     def get_function_file_set(self, dataset: dict, binary_name) -> Tuple[Dict[tuple, List[FunctionEmbedding]], Dict[tuple, List[str]]]:
         candidate_pool: Dict[tuple, List[FunctionEmbedding]] = {}
@@ -398,13 +557,13 @@ class InferenceModel:
         
         return candidate_pool, candidate_name_pool
     
-    def get_different_function_sample(self, dataset: dict, binary_name: str, function_name: str):
-        selected_binary_name = random.choice(list(dataset['data'].keys()))
+    def sample_random_function(self, dataset: dict, binary_name: str, function_name: str):
+        selected_binary_name = random.choice(list(dataset['data'].keys()))       
         selected_function_name = random.choice(list(dataset['data'][selected_binary_name].keys()))
-        while selected_binary_name == binary_name and selected_function_name == function_name:
-            selected_binary_name = random.choice(list(dataset['data'].keys()))
-            selected_function_name = random.choice(list(dataset['data'][selected_binary_name].keys()))
-        return dataset['data'][selected_binary_name][selected_function_name]
+        while selected_function_name == function_name and selected_binary_name == binary_name:
+            selected_binary_name = random.choice(list(dataset['data'].keys()))      
+            selected_function_name = random.choice(list(dataset['data'][selected_binary_name].keys()))             
+        return random.choice(dataset['data'][selected_binary_name][selected_function_name])
          
          
     def AUC(self, dataset: dict, graphs: List[dgl.DGLGraph]):
@@ -451,10 +610,7 @@ if __name__ == '__main__':
     # multiprocessing.set_start_method(method='forkserver', force=True)
     random.seed(1)
     model_config = ModelConfig()
-    
-    with open("dataset/openplc/index_test_data.pkl", 'rb') as f:
-        dataset = pickle.load(f)
-        f.close()
+
         # bad_binary_list = []
         # for binary in dataset['data']:
         #     if len(dataset['data'][binary]) < 50:
@@ -462,21 +618,46 @@ if __name__ == '__main__':
         # for binary in bad_binary_list:
         #     del dataset['data'][binary]
     
-    graphs, _ = dgl.load_graphs("dataset/openplc/dgl_graphs.dgl")
+    graphs, _ = dgl.load_graphs("dataset/Dataset_2_stripcd/dgl_graphs.dgl")
 
-    model_config.model_path = "lightning_logs/openplc_pearson_1/checkpoints/last.ckpt"
+    model_config.model_path = "lightning_logs/version_5/checkpoints/epoch=81-step=1305604.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 151
     model_config.max_length = 1000
     model_config.cuda = True
-    model_config.topK = 10
+    model_config.topK = 50
     model = InferenceModel(model_config)
     
-    # model.AUC_average(dataset)
-    res = model.test_recall_K_file(dataset, graphs, max_k=model_config.topK)
-    roc = model.AUC(dataset, graphs)
+    # total_res = []
     
+    # for i in range(1, 6):
+    #     with open("dataset/coreutil/index_test_data_{}.pkl".format(i), 'rb') as f:
+    #         dataset = pickle.load(f)
+    #         f.close()
+    #     # model.AUC_average(dataset)
+    #     res = model.test_recall_K(dataset, graphs, max_k=model_config.topK, mode='file')
+    #     # roc = model.AUC(dataset, graphs)
+    #     total_res.append(res)
+        
+    # total_res = np.array(total_res)
+    # print(np.mean(total_res, axis=0).tolist())
     
+    total_res = []
+    for i in range(1, 6):
+        with open("dataset/Dataset_2_stripcd/index_test_data_{}.pkl".format(i), 'rb') as f:
+            dataset_strip = pickle.load(f)
+            f.close()
+            
+        with open("dataset/Dataset_2/index_test_data_{}.pkl".format(i), 'rb') as f:
+            dataset_origin = pickle.load(f)
+            f.close()
+
+        # res = model.test_recall_K(dataset, graphs, max_k=model_config.topK, mode='pool', n_candidates=100)
+        res = model.test_strip_recall_K(dataset_origin=dataset_origin, dataset_strip=dataset_origin, graph_strip=graphs, max_k=50, n_candidates=100)
+        total_res.append(res)
+        
+    total_res = np.array(total_res)
+    print(np.mean(total_res, axis=0).tolist())
     # with open("./recall_allstar.pkl", 'wb') as f:
     #     pickle.dump(res, f)
     #     f.close()

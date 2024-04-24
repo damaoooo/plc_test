@@ -252,6 +252,9 @@ class Converter:
         G = pgv.AGraph(file_name)
         # G = nx.Graph(G)
         # G = G.to_undirected()
+        
+        if G.name == "&lt;global&gt;" or G.name == "<global>":
+            return
 
         if len(G.nodes()) < self.min_length or len(G.nodes()) > self.max_length:
             return
@@ -268,13 +271,20 @@ class Converter:
 
     def convert_file(self, file_name: str, binary_name: str, arch: str, opt: str):
         G = pgv.AGraph(file_name)
-
+        
+        if G.name == "&lt;global&gt;" or G.name == "<global>":
+            return
+        
+        if G.name.startswith("function_"):
+            return 
+        
         if len(G.nodes()) < self.min_length or len(G.nodes()) > self.max_length:
             return
 
         G = nx.Graph(G)
+        func_name = G.name
 
-        function_name = re.sub("_part_\d+", "", G.name)
+        function_name = re.sub("_part_\d+", "", func_name)
         function_name = re.sub("_constprop_\d+", "", function_name)
         function_name = re.sub("_isra_\d+", "", function_name)
         try:

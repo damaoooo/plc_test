@@ -21,7 +21,7 @@ DataIndex = Dict[str, Dict[str, List[FunctionBody]]]
 
 class ASTGraphDataset(Dataset):
     def __init__(
-            self, data: list, data_index: DataIndex, max_adj: int, feature_len: int, pool_size: int,
+            self, data: list, data_index: DataIndex, max_adj: int, feature_len: int, pool_size: int, mode: str,
             environment: tuple = None
     ) -> None:
         super().__init__()
@@ -33,6 +33,7 @@ class ASTGraphDataset(Dataset):
         self.max_adj = max_adj
         self.feature_len = feature_len
         self.pool_size = pool_size
+        self.mode = mode
         self.environment = environment
 
     def __len__(self):
@@ -65,31 +66,43 @@ class ASTGraphDataset(Dataset):
         same_pair = random.sample(sample_function_list, 2)
         sample, same_sample = same_pair[0], same_pair[1]
 
-        different_binary_name = random.choice(self.binary_list)
-        different_function_name = random.choice(
-            list(self.data_index[different_binary_name].keys())
-        )
+        if self.mode == 'file':
 
-        while (
-                different_function_name == function_name
-                and different_binary_name == binary_name
-        ):
             different_binary_name = random.choice(self.binary_list)
             different_function_name = random.choice(
                 list(self.data_index[different_binary_name].keys())
             )
+        
+            while (
+                    different_function_name == function_name
+                    and different_binary_name == binary_name
+            ):
+                different_binary_name = random.choice(self.binary_list)
+                different_function_name = random.choice(
+                    list(self.data_index[different_binary_name].keys())
+                )
 
-        different_sample = random.choice(
-            self.data_index[different_binary_name][different_function_name]
-        )
+            different_sample = random.choice(
+                self.data_index[different_binary_name][different_function_name]
+            )
+        
+        else:
+            arch = sample["arch"]
+            opt = sample["opt"]
+            different_sample = sample
+            while arch == sample["arch"] and opt == sample["opt"]:
+                random_binary_name = random.choice(self.binary_list)
+                random_function_name = random.choice(list(self.data_index[random_binary_name].keys()))
+                different_sample = random.choice(self.data_index[random_binary_name][random_function_name])
 
+        different_sample = self._to_tensor(different_sample)
+        sample_dict = sample
         sample = self._to_tensor(sample)
         same_sample = self._to_tensor(same_sample)
-        different_sample = self._to_tensor(different_sample)
 
         # Pool candidates
         if self.pool_size:
-            pool = self._get_pool(binary_name, function_name)
+            pool = self._get_pool(sample=sample_dict)
             pool = [self._to_tensor(x) for x in pool]
             return {"sample": sample, "same_sample": same_sample, "different_sample": different_sample,
                     "label": torch.tensor([0]), "pool": pool}
@@ -97,28 +110,43 @@ class ASTGraphDataset(Dataset):
         return {"sample": sample, "same_sample": same_sample, "different_sample": different_sample,
                 "label": torch.tensor([0])}
 
-    def _get_pool(self, binary_name: str, function_name: str):
+    def _get_pool(self, sample: dict):
         pool = []
         # Get the function pool that does not contain the function_name
         for p in range(self.pool_size):
             pool_binary_name = random.choice(self.binary_list)
             pool_function_name = random.choice(list(self.data_index[pool_binary_name].keys()))
-            while (
-                    pool_binary_name == binary_name and pool_function_name == function_name
-            ):
-                pool_binary_name = random.choice(self.binary_list)
-                pool_function_name = random.choice(
-                    list(self.data_index[pool_binary_name].keys())
-                )
+            
+            pool_item = random.choice(self.data_index[pool_binary_name][pool_function_name])
+            
+            if self.mode == "file":  
+                while (
+                        pool_binary_name == sample['binary'] and pool_function_name == sample['name']
+                ):
+                    pool_binary_name = random.choice(self.binary_list)
+                    pool_function_name = random.choice(
+                        list(self.data_index[pool_binary_name].keys())
+                    )
+                    pool_item = random.choice(self.data_index[pool_binary_name][pool_function_name])
+            
+            else:
+                random_arch, random_opt = sample["arch"], sample["opt"]
+                pool_item = sample
+                while (random_arch == sample["arch"] and random_opt == sample["opt"]):
+                    pool_binary_name = random.choice(self.binary_list)
+                    pool_function_name = random.choice(list(self.data_index[pool_binary_name].keys()))
+                    pool_item = random.choice(self.data_index[pool_binary_name][pool_function_name])
+                    random_arch, random_opt = pool_item["arch"], pool_item["opt"]
+                    
             if self.environment:
                 functions = self.data_index[pool_binary_name][pool_function_name]
                 for func in functions:
                     if func["arch"] == self.environment[0] and func["opt"] == self.environment[1]:
                         pool.append(func)
                         break
-
+                pool_item = random.choice(functions)
             else:
-                pool.append(random.choice(self.data_index[pool_binary_name][pool_function_name]))
+                pool.append(pool_item)
 
         return pool
 
@@ -262,6 +290,7 @@ class ASTGraphDataModule(pl.LightningDataModule):
             pool_size: int = 0,
             batch_size: int = 32,
             num_workers: int = 16,
+            mode: str = "file",
             exclude: list = None,
             k_fold: int = 0,
             exclusive_arch: str = None,
@@ -285,6 +314,7 @@ class ASTGraphDataModule(pl.LightningDataModule):
 
         self.k_fold = k_fold
 
+        self.mode = mode
 
         if exclusive_arch and exclusive_opt:
             self.environment = (exclusive_arch, exclusive_opt)
@@ -404,6 +434,7 @@ class ASTGraphDataModule(pl.LightningDataModule):
             max_adj=self.max_length,
             feature_len=self.feature_length,
             pool_size=self.pool_size,
+            mode=self.mode,
         )
 
         self.val_set = ASTGraphDataset(
@@ -412,6 +443,7 @@ class ASTGraphDataModule(pl.LightningDataModule):
             max_adj=self.max_length,
             feature_len=self.feature_length,
             pool_size=self.pool_size,
+            mode=self.mode,
             environment=self.environment
         )
 
