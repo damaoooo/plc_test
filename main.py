@@ -5,7 +5,7 @@ import pickle
 from dataclasses import dataclass
 import argparse
 from lightning.pytorch import Trainer, seed_everything
-from model import PLModelForAST, FineTuneLearningRateFinder
+from model import PLModelForAST
 from dataset import ASTGraphDataModule, ASTGraphRedisDataModule
 from lightning.pytorch.callbacks import ModelCheckpoint
 

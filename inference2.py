@@ -35,7 +35,7 @@ def similarity_score(query, vectors):
 def get_pearson_score(query, vectors):
     cov = (query * vectors).mean(axis=-1)
     pearson = cov / (query.std(axis=-1) * vectors.std(axis=-1))
-    return abs(pearson)
+    return abs(pearson), pearson
 
 
 class FunctionEmbedding:
@@ -324,6 +324,7 @@ class InferenceModel:
         pbar = tqdm(total=self.get_dataset_function_num(dataset_strip))
         
         length = []
+        temp_ref = []
         
         for binary in dataset_origin['data']:
             record_total = {x: [0, 0] for x in range(1, max_k + 1)}
@@ -396,12 +397,15 @@ class InferenceModel:
                     length.append(len(function_candidates))
                     
                     # mm = similarity_score(left_embedding, function_candidates)
-                    mm = get_pearson_score(left_embedding, function_candidates)
-                    rank_list = sorted(zip(mm.reshape(-1), function_names), key=lambda x: x[0], reverse=True)[:self.config.topK]
+                    mm, ref = get_pearson_score(left_embedding, function_candidates)
+                    rank_list = sorted(zip(mm.reshape(-1), function_names, ref.reshape(-1)), key=lambda x: x[0], reverse=True)[:self.config.topK]
                     for k in range(1, max_k + 1):
                         is_correct = self.judge(right_function['name'], [x[1] for x in rank_list[:k]])
                         record_total[k][0] += int(is_correct)
                         record_total[k][1] += 1
+                        
+                        if k == 1:
+                            temp_ref.append(rank_list[0][2])
             
             success_result = True
             for k in range(1, max_k + 1):
@@ -421,7 +425,8 @@ class InferenceModel:
             recall_avg.append(np.mean(recall[k]))
         avg_candidate = np.mean(length)
         print("recall_avg", recall_avg, "avg candidates", avg_candidate,'\n')
-        return recall_avg            
+        print("Pearson", np.mean(temp_ref), np.std(temp_ref))
+        return recall_avg, temp_ref      
 
     # @profile
     def test_recall_K(self, dataset:dict, graph: list, max_k: int = 10, n_candidates: int = 100, mode: str = 'pool', exclusive_env: tuple = None):
@@ -493,7 +498,7 @@ class InferenceModel:
                         assert n_candidates > 0, "If you choose pool mode, you must specify the number of candidates"
                         for i in range(n_candidates):
                             arch, opt = random.choice(list(candidate_pool.keys()))
-                            while arch == function_body['arch'] or opt == function_body['opt']:
+                            while arch == function_body['arch'] and opt == function_body['opt']:
                                 arch, opt = random.choice(list(candidate_pool.keys()))
                             selected = random.choice(candidate_pool[(arch, opt)])
                             name_list.append(selected.name)
@@ -620,7 +625,7 @@ if __name__ == '__main__':
     
     graphs, _ = dgl.load_graphs("dataset/Dataset_2_stripcd/dgl_graphs.dgl")
 
-    model_config.model_path = "lightning_logs/version_5/checkpoints/epoch=81-step=1305604.ckpt"
+    model_config.model_path = "/home/damaoooo/plc_test/lightning_logs/version_5/checkpoints/epoch=81-step=1305604.ckpt"
     model_config.dataset_path = ""
     model_config.feature_length = 151
     model_config.max_length = 1000
@@ -628,21 +633,22 @@ if __name__ == '__main__':
     model_config.topK = 50
     model = InferenceModel(model_config)
     
-    # total_res = []
+    total_res = []
     
     # for i in range(1, 6):
-    #     with open("dataset/coreutil/index_test_data_{}.pkl".format(i), 'rb') as f:
-    #         dataset = pickle.load(f)
-    #         f.close()
-    #     # model.AUC_average(dataset)
-    #     res = model.test_recall_K(dataset, graphs, max_k=model_config.topK, mode='file')
-    #     # roc = model.AUC(dataset, graphs)
-    #     total_res.append(res)
-        
+    # with open("dataset/Dataset_1_asm/index_test_data_{}.pkl".format(5), 'rb') as f:
+    #     dataset = pickle.load(f)
+    #     f.close()
+    # # model.AUC_average(dataset)
+    # res = model.test_recall_K(dataset, graphs, max_k=model_config.topK, mode='pool', n_candidates=100)
+    # # roc = model.AUC(dataset, graphs)
+    # total_res.append(res)
+    
     # total_res = np.array(total_res)
     # print(np.mean(total_res, axis=0).tolist())
     
     total_res = []
+    ref_ref = []
     for i in range(1, 6):
         with open("dataset/Dataset_2_stripcd/index_test_data_{}.pkl".format(i), 'rb') as f:
             dataset_strip = pickle.load(f)
@@ -653,11 +659,19 @@ if __name__ == '__main__':
             f.close()
 
         # res = model.test_recall_K(dataset, graphs, max_k=model_config.topK, mode='pool', n_candidates=100)
-        res = model.test_strip_recall_K(dataset_origin=dataset_origin, dataset_strip=dataset_origin, graph_strip=graphs, max_k=50, n_candidates=100)
+        res, ref = model.test_strip_recall_K(dataset_origin=dataset_origin, dataset_strip=dataset_strip, graph_strip=graphs, max_k=50, n_candidates=100)
         total_res.append(res)
+        ref_ref.extend(ref)
         
     total_res = np.array(total_res)
     print(np.mean(total_res, axis=0).tolist())
+    print(np.mean(ref_ref), np.std(ref_ref))
+    # Save ref_ref
+    with open("ref_ref.pkl", 'wb') as f:
+        pickle.dump(ref_ref, f)
+        f.close()
+    
+    
     # with open("./recall_allstar.pkl", 'wb') as f:
     #     pickle.dump(res, f)
     #     f.close()

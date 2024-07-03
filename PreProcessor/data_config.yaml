@@ -2,11 +2,11 @@ max_length: 1000
 k_fold: 5
 
 file_path:
-  op_path: /home/damaoooo/plc_test/dataset/Dataset_2_cpg/origin_data.pkl
-  root_path: /home/damaoooo/binary_function_similarity/Binaries/Dataset-2-strip
-  save_path: /home/damaoooo/plc_test/dataset/Dataset_2_stripcd
+  op_path: /home/damaoooo/plc_test/dataset/Dataset_1_asm/opfile.pkl
+  root_path: /home/damaoooo/Downloads/Dataset-1/
+  save_path: /home/damaoooo/plc_test/dataset/Dataset_1_asm
 
 cache:
-  read_op: True
+  read_op: False
   read_cache: False
   

@@ -294,6 +294,9 @@ class Converter:
 
         # if not ("_init_" in function_name or "_body" in function_name):
         #     continue
+        
+        if "(" in function_name:
+            function_name = function_name.split("(")[0]
 
         G = G.to_undirected()
         edges = G.edges
