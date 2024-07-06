@@ -34,24 +34,27 @@ def load_optimizer(config: TrainConfig, model: ReGraphModel):
     return optimizer
 
 
-def train_loop(model: ReGraphModel, train_loader: DataLoader, config: TrainConfig, optimizer: optim.Optimizer):
+def train_loop(model: ReGraphModel, train_loader: DataLoader, optimizer: optim.Optimizer):
     model.train()
     # for epoch in range(config.max_epochs
 
     for i, data in enumerate(train_loader):
         optimizer.zero_grad()
         output = model(data)
-        loss = output.mean()
+        loss_basic, loss_pool = output.mean()
+        loss = loss_basic + loss_pool
         loss.backward()
         optimizer.step()
 
 
-def val_loop(model: ReGraphModel, val_loader: DataLoader, config: TrainConfig):
+def val_loop(model: ReGraphModel, val_loader: DataLoader):
     model.eval()
     with torch.no_grad():
         for i, data in enumerate(val_loader):
             output = model(data)
-            loss = output.mean()
+            loss_basic, loss_pool, acc, diff = output.mean()
+            loss_basic = loss_basic.item()
+            loss_pool = loss_pool.item()
 
 # TODO:
 # 1. Add comparison of Diff
