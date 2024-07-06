@@ -179,7 +179,7 @@ class ASTGraphDataLoader:
         adj_len, feature_len, train_data = _load_pickle_data(train_path)
         _, _, test_data = _load_pickle_data(test_path)
 
-        all_data = dgl.load_graphs(os.path.join(self.data_path, "dgl_graphs.dgl"))
+        all_data, _ = dgl.load_graphs(os.path.join(self.data_path, "dgl_graphs.dgl"))
         train_set = ASTGraphDataset(
             data=all_data,
             data_index=train_data,
@@ -230,7 +230,7 @@ class ASTGraphDataLoader:
 
 if __name__ == "__main__":
     a0 = time.time()
-    p = ASTGraphDataLoader(data_path="uboot", pool_size=50, batch_size=4, num_workers=8, k_fold=1, )
+    p = ASTGraphDataLoader(data_path="dataset/uboot_uncompress", pool_size=50, batch_size=4, num_workers=8, k_fold=5, )
     # p = ASTGraphDataModule(data_path="dataset/uboot_dataset", pool_size=50, batch_size=10, num_workers=4, k_fold=1)
     train = p.get_train_loader()
     idx = 0

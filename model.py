@@ -1,15 +1,8 @@
-from math import dist
-from typing import Any, Optional
+
 
 import torch
-import random
-import numpy as np
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
-import dgl
-import dgl.nn as dglnn
-
 from dgl.nn.pytorch.conv import GATv2Conv
 from audtorch.metrics.functional import pearsonr
 
@@ -69,7 +62,7 @@ class ReGraphModel(nn.Module):
         self.pool_size = pool_size
 
     def forward(self, x):
-        # TODO: maybe remove this if not needed without lightning
+        # FIXME: maybe remove this if not needed without lightning
         torch.cuda.empty_cache()
         sample, same, diff, label, pool = x['sample'], x['same_sample'], x['different_sample'], x['label'], x['pool']
 
