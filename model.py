@@ -5,7 +5,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from dgl.nn.pytorch.conv import GATv2Conv
 import numpy as np
-from audtorch.metrics.functional import pearsonr
 
 
 def similarity_score(x, y):
@@ -90,8 +89,7 @@ class ReGraphModel(nn.Module):
             with torch.no_grad():
                 diff_score: torch.Tensor = pearson_score(sample_vector, diff_vector).detach().cpu().numpy()
                 same_score: torch.Tensor = pearson_score(sample_vector, same_vector).detach().cpu().numpy()
-                acc: np.array = (diff_score < same_score).astype(np.int32)
                 diff_value: np.array = (same_score - diff_score).mean()
-            return loss_basic, loss_pool, acc, diff_value
+            return loss_basic, loss_pool, diff_value
         else:
             return loss_basic, loss_pool

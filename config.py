@@ -24,6 +24,7 @@ class TrainConfig:
     redis: bool = False
     data_name: str = None
     mode: str = "file"
+    log_path: str = "./logs"
 
 
 def read_yaml_config(config_path: str):
@@ -57,6 +58,7 @@ def parse_args():
     argparser.add_argument("--redis", type=bool, default=False)
     argparser.add_argument("--data_name", type=str, default=None)
     argparser.add_argument("--mode", type=str, default="file")
+    argparser.add_argument("--log_path", type=str, default="./logs")
     return argparser.parse_args()
 
 
@@ -65,7 +67,6 @@ def read_config() -> TrainConfig:
     args = parse_args()
     if args.config is not None:
         yaml_config = read_yaml_config(args.config)
-        # TODO: Read yaml file and update config
         print("Reading Configuration From YAML ......")
         config.alpha = yaml_config['hyper_parameters']["alpha"]
         config.lr = yaml_config['hyper_parameters']["lr"]
@@ -90,6 +91,8 @@ def read_config() -> TrainConfig:
 
         config.redis = yaml_config['hyper_parameters']['redis']
         config.mode = yaml_config['hyper_parameters']['mode']
+
+        config.log_path = yaml_config['path']['log_path']
 
     else:
         config.alpha = args.alpha
@@ -116,6 +119,8 @@ def read_config() -> TrainConfig:
         config.redis = args.redis
         config.data_name = args.data_name
         config.mode = args.mode
+
+        config.log_path = args.log_path
 
     if args.max_epochs != 200:
         config.max_epochs = args.max_epochs

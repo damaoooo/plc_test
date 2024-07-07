@@ -168,6 +168,9 @@ class ASTGraphDataLoader:
         self.train_loader, self.val_loader = self.get_loader(batch_size=batch_size, num_workers=num_workers,
                                                              pin_memory=pin_memory, prefetch_factor=prefetch_factor)
 
+        self.adj_len = self.train_set.max_adj
+        self.feature_len = self.train_set.feature_len
+
     def _load_data_from_path(self):
         if self.k_fold:
             train_path = os.path.join(self.data_path, f"index_train_data_{self.k_fold}.pkl")

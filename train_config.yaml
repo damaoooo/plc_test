@@ -26,3 +26,4 @@ path:
   data_path: dataset/Dataset_1_asm
   # load_checkpoint: "lightning_logs/version_9/checkpoints/last.ckpt"
   load_checkpoint: ""
+  log_path: "./logs"
