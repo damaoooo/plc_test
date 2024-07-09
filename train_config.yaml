@@ -23,7 +23,7 @@ hyper_parameters:
 path:
   # data_path: dataset/coreutil
   data_name: Dataset_1_asm
-  data_path: dataset/Dataset_1_asm
+  data_path: /home/damaoooo/plc_test/dataset/uboot
   # load_checkpoint: "lightning_logs/version_9/checkpoints/last.ckpt"
   load_checkpoint: ""
   log_path: "./logs"

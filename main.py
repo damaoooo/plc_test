@@ -27,7 +27,7 @@ def load_data(config: TrainConfig):
 def load_model(config: TrainConfig, max_length: int, feature_length: int):
     model = BaseModel(in_feature=feature_length, hidden_feature=config.hidden_features,
                       out_feature=config.output_features, num_heads=config.n_heads,
-                      dropout=config.n_heads, alpha=config.alpha, adj_len=max_length)
+                      dropout=config.dropout, alpha=config.alpha, adj_len=max_length)
     model = ReGraphModel(base_model=model, pool_size=config.pool_size)
     return model
 
@@ -42,13 +42,14 @@ def train_loop(model: ReGraphModel, train_loader: DataLoader, optimizer: optim.O
     for i, data in enumerate(train_loader):
         optimizer.zero_grad()
         output = model(data)
-        loss_basic, loss_pool = output.mean()
+        loss_basic, loss_pool, diff = output
         loss = loss_basic + loss_pool
         loss.backward()
         optimizer.step()
         writer.add_scalar("Train/BasicLoss", loss_basic.item())
         writer.add_scalar("Train/PoolLoss", loss_pool.item())
-        bar.set_postfix({"BasicLoss": loss_basic.item(), "PoolLoss": loss_pool.item()})
+        writer.add_scalar("Train/Diff", diff.item())
+        bar.set_postfix({"BasicLoss": loss_basic.item(), "PoolLoss": loss_pool.item(), "Diff": diff.item()})
         bar.update()
 
 
@@ -111,6 +112,10 @@ def seed_everything(seed: int):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+# TODO: Move to use GPU
+# FP16
+# GraphBolt
 
 
 if __name__ == "__main__":

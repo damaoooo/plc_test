@@ -73,7 +73,7 @@ class ReGraphModel(nn.Module):
         # Pearson(sample, same) should be close to 1
         # Pearson(sample, diff) should be close to 0
         loss_basic = (1 - abs(pearson_score(sample_vector, same_vector))) + abs(pearson_score(sample_vector, diff_vector))
-
+        loss_basic = loss_basic.mean()
         batch_size, output_size = same_vector.shape[0], same_vector.shape[1]
 
         pool_vectors = [self.base_mode(pool[b]) for b in range(batch_size)]
@@ -84,12 +84,10 @@ class ReGraphModel(nn.Module):
 
         loss_pool = F.cross_entropy(pool_similarity, torch.tensor([self.pool_size] * batch_size, dtype=torch.long).to(device=same_vector.device))
 
-        if not self.training:
-            # Calculate diff and acc
-            with torch.no_grad():
-                diff_score: torch.Tensor = pearson_score(sample_vector, diff_vector).detach().cpu().numpy()
-                same_score: torch.Tensor = pearson_score(sample_vector, same_vector).detach().cpu().numpy()
-                diff_value: np.array = (same_score - diff_score).mean()
-            return loss_basic, loss_pool, diff_value
-        else:
-            return loss_basic, loss_pool
+
+        with torch.no_grad():
+            diff_score: torch.Tensor = pearson_score(sample_vector, diff_vector).detach().cpu().numpy()
+            same_score: torch.Tensor = pearson_score(sample_vector, same_vector).detach().cpu().numpy()
+            diff_value: np.array = (same_score - diff_score).mean()
+        return loss_basic, loss_pool, diff_value
+
